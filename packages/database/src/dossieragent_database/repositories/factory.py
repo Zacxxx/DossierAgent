@@ -1,0 +1,44 @@
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import dataclass
+
+from .base import SQLiteTableRepository
+from .dashboard import DashboardRepository
+from .runs import AgentEventRepository, AgentRunRepository
+
+
+@dataclass(frozen=True, slots=True)
+class DatabaseRepositories:
+    users: SQLiteTableRepository
+    refresh_tokens: SQLiteTableRepository
+    search_criteria: SQLiteTableRepository
+    market_watches: SQLiteTableRepository
+    listings: SQLiteTableRepository
+    dossier_documents: SQLiteTableRepository
+    dossier_snapshots: SQLiteTableRepository
+    contact_packets: SQLiteTableRepository
+    user_checks: SQLiteTableRepository
+    notifications: SQLiteTableRepository
+    agent_runs: AgentRunRepository
+    agent_events: AgentEventRepository
+    dashboard: DashboardRepository
+
+
+def build_repositories(connection: sqlite3.Connection) -> DatabaseRepositories:
+    return DatabaseRepositories(
+        users=SQLiteTableRepository(connection, "users", user_scoped=False),
+        refresh_tokens=SQLiteTableRepository(connection, "refresh_tokens"),
+        search_criteria=SQLiteTableRepository(connection, "search_criteria"),
+        market_watches=SQLiteTableRepository(connection, "market_watches"),
+        listings=SQLiteTableRepository(connection, "listings"),
+        dossier_documents=SQLiteTableRepository(connection, "dossier_documents"),
+        dossier_snapshots=SQLiteTableRepository(connection, "dossier_snapshots"),
+        contact_packets=SQLiteTableRepository(connection, "contact_packets"),
+        user_checks=SQLiteTableRepository(connection, "user_checks"),
+        notifications=SQLiteTableRepository(connection, "notifications"),
+        agent_runs=AgentRunRepository(connection),
+        agent_events=AgentEventRepository(connection),
+        dashboard=DashboardRepository(connection),
+    )
+
