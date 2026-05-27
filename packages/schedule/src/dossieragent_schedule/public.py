@@ -1,3 +1,5 @@
+from .policies import compute_next_run_at, find_due_watches, run_due_watches_plan
+
 PACKAGE_MANIFEST = {
     "name": "schedule",
     "concern": "Cron-facing watch scheduling and due-run policy.",
@@ -21,4 +23,3 @@ PACKAGE_MANIFEST = {
 
 def get_manifest() -> dict[str, object]:
     return dict(PACKAGE_MANIFEST)
-

@@ -5,6 +5,7 @@ description = "Tiny composition core for DossierAgent packages."
 requires-python = ">=3.12"
 dependencies = [
   "dossieragent-database",
+  "dossieragent-schedule",
   "fastapi>=0.115",
   "httpx>=0.27",
   "uvicorn[standard]>=0.32",
@@ -12,6 +13,7 @@ dependencies = [
 
 [tool.uv.sources]
 dossieragent-database = { workspace = true }
+dossieragent-schedule = { workspace = true }
 
 [build-system]
 requires = ["setuptools>=69"]
