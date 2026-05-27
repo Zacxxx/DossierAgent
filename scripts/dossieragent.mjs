@@ -236,6 +236,10 @@ function startService(service) {
     cwd: join(rootDir, service.cwd),
     env: {
       ...process.env,
+      DOSSIERAGENT_SQLITE_PATH:
+        process.env.DOSSIERAGENT_SQLITE_PATH ?? join(rootDir, "data", "dossieragent.db"),
+      DOSSIERAGENT_STORAGE_PATH:
+        process.env.DOSSIERAGENT_STORAGE_PATH ?? join(rootDir, "storage"),
       PYTHONPATH: pythonPathForService(service.packageName),
     },
     stdio: ["ignore", "pipe", "pipe"],

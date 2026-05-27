@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from dossieragent_database import build_repositories, create_connection, run_migrations
+from dossieragent_database.seed import seed_demo_data
 
 
 class RepositoryTests(unittest.TestCase):
@@ -129,7 +130,24 @@ class RepositoryTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_dashboard_repository_reads_seeded_state(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            connection = create_connection(tmp_path / "dossieragent.db")
+            try:
+                seed_demo_data(connection, storage_path=tmp_path / "storage")
+                dashboard = build_repositories(connection).dashboard
+
+                self.assertEqual(dashboard.current_watch("usr_demo")["id"], "watch_toulouse_t2")
+                self.assertEqual(dashboard.latest_run("usr_demo")["id"], "run_latest")
+                self.assertEqual(
+                    dashboard.latest_dossier_snapshot("usr_demo")["id"],
+                    "snap_demo_latest",
+                )
+                self.assertEqual(len(dashboard.recommended_listings("usr_demo")), 4)
+            finally:
+                connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()
-

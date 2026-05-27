@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
+import json
+import os
 from typing import Any
 from uuid import uuid4
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from dossieragent_database import build_repositories, create_connection, run_migrations
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -22,6 +25,7 @@ PACKAGE_STATUS: tuple[dict[str, str], ...] = (
     {"name": "mcp", "concern": "MCP configuration and Elastic Agent Builder integration"},
     {"name": "core", "concern": "Minimal composition and orchestration layer"},
 )
+DEFAULT_DEMO_USER_ID = "usr_demo"
 
 
 def create_app() -> FastAPI:
@@ -69,6 +73,31 @@ def install_routes(app: FastAPI) -> None:
             "status": "/api/v1/status",
         }
 
+    @app.get("/api/v1/dashboard", tags=["dashboard"])
+    def dashboard(
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = x_demo_user_id or os.environ.get("DOSSIERAGENT_DEMO_USER_ID", DEFAULT_DEMO_USER_ID)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            payload = build_dashboard_payload(repositories.dashboard, user_id)
+        finally:
+            connection.close()
+
+        if payload is None:
+            raise HTTPException(
+                status_code=404,
+                detail={
+                    "code": "dashboard_not_ready",
+                    "message": "Dashboard data not found. Run `bun run seed` first.",
+                    "details": {"user_id": user_id},
+                    "retryable": False,
+                },
+            )
+        return payload
+
 
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
@@ -105,6 +134,64 @@ def install_error_handlers(app: FastAPI) -> None:
             details={"path": request.url.path},
             retryable=False,
         )
+
+
+def build_dashboard_payload(dashboard_repository: Any, user_id: str) -> dict[str, Any] | None:
+    current_watch = dashboard_repository.current_watch(user_id)
+    latest_run = dashboard_repository.latest_run(user_id)
+    dossier_snapshot = dashboard_repository.latest_dossier_snapshot(user_id)
+    if current_watch is None or latest_run is None or dossier_snapshot is None:
+        return None
+
+    return {
+        "current_watch": {
+            "id": current_watch["id"],
+            "name": current_watch["name"],
+            "status": current_watch["status"],
+            "next_run_at": current_watch["next_run_at"],
+            "last_run_at": current_watch["last_run_at"],
+        },
+        "latest_run": {
+            "id": latest_run["id"],
+            "status": latest_run["status"],
+            "stats": json_field(latest_run["summary_json"], {}),
+            "completed_at": latest_run["completed_at"],
+        },
+        "dossier": {
+            "readiness_score": dossier_snapshot["readiness_score"],
+            "can_contact": bool(dossier_snapshot["can_contact"]),
+            "can_send_full_dossier": bool(dossier_snapshot["can_send_full_dossier"]),
+            "missing_docs": json_field(dossier_snapshot["missing_documents_json"], []),
+            "valid_docs": json_field(dossier_snapshot["valid_documents_json"], []),
+            "recommendations": json_field(dossier_snapshot["recommendations_json"], []),
+        },
+        "pending_checks": dashboard_repository.count("user_checks", user_id, "status = 'pending'"),
+        "notifications_unread": dashboard_repository.count("notifications", user_id, "read_at IS NULL"),
+        "recommended_listings": [
+            {
+                "id": listing["id"],
+                "title": listing["title"],
+                "city": listing["city"],
+                "district": listing["district"],
+                "price": listing["price"],
+                "currency": listing["currency"],
+                "surface": listing["surface"],
+                "rooms": listing["rooms"],
+                "status": listing["status"],
+                "fit_score": listing["fit_score"],
+                "fit_level": listing["fit_level"],
+                "risk_flags": json_field(listing["risk_flags_json"], []),
+                "explanation": json_field(listing["explanation_json"], []),
+            }
+            for listing in dashboard_repository.recommended_listings(user_id)
+        ],
+    }
+
+
+def json_field(value: str | None, default: Any) -> Any:
+    if value is None:
+        return default
+    return json.loads(value)
 
 
 def error_response(
@@ -155,4 +242,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

@@ -4,10 +4,14 @@ version = "0.1.0"
 description = "Tiny composition core for DossierAgent packages."
 requires-python = ">=3.12"
 dependencies = [
+  "dossieragent-database",
   "fastapi>=0.115",
   "httpx>=0.27",
   "uvicorn[standard]>=0.32",
 ]
+
+[tool.uv.sources]
+dossieragent-database = { workspace = true }
 
 [build-system]
 requires = ["setuptools>=69"]
