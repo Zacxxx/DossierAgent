@@ -60,6 +60,9 @@ class RepositoryTests(unittest.TestCase):
                         "canonical_url": "https://example.test/listings/1",
                         "canonical_url_hash": "hash_001",
                         "title": "T2 Saint Cyprien",
+                        "city": "Toulouse",
+                        "district": "Saint-Cyprien",
+                        "surface": 39,
                         "composite_fingerprint": "fp_001",
                         "status": "new",
                         "first_seen_at": now,
@@ -127,6 +130,16 @@ class RepositoryTests(unittest.TestCase):
                 )
 
                 updated_listing = repos.listings.update(listing["id"], {"status": "saved"})
+                listing_search_rows, listing_search_total = repos.listings.search(
+                    user_id=user["id"],
+                    filters={"status": "saved", "q": "Cyprien", "min_surface": 1},
+                    limit=10,
+                    offset=0,
+                )
+                found_listing = repos.listings.find_for_user(
+                    user_id=user["id"],
+                    listing_id=listing["id"],
+                )
                 events = repos.agent_events.list_for_run(run["id"])
                 counts = repos.dashboard.counts_for_user(user["id"])
                 idempotency_key = repos.idempotency_keys.find_key(
@@ -138,6 +151,9 @@ class RepositoryTests(unittest.TestCase):
                 self.assertEqual(repos.users.get("usr_001")["email"], "demo@example.com")
                 self.assertEqual(repos.search_criteria.list_by_user(user["id"])[0]["id"], "crit_001")
                 self.assertEqual(updated_listing["status"], "saved")
+                self.assertEqual(listing_search_total, 1)
+                self.assertEqual(listing_search_rows[0]["id"], "lst_001")
+                self.assertEqual(found_listing["id"], "lst_001")
                 self.assertEqual(events[0]["id"], "evt_001")
                 self.assertEqual(counts["market_watches"], 1)
                 self.assertEqual(counts["listings"], 1)

@@ -3,6 +3,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
@@ -10,7 +12,8 @@ from uuid import uuid4
 import uvicorn
 from dossieragent_database import build_repositories, create_connection, run_migrations
 from dossieragent_schedule import compute_next_run_at, find_due_watches
-from fastapi import FastAPI, Header, HTTPException, Request
+from dossieragent_search_engine import build_listing_search_query
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -30,6 +33,16 @@ PACKAGE_STATUS: tuple[dict[str, str], ...] = (
 )
 DEFAULT_DEMO_USER_ID = "usr_demo"
 LOCAL_CRON_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
+VALID_LISTING_STATUSES = {
+    "new",
+    "saved",
+    "recommended",
+    "rejected",
+    "duplicate",
+    "repost",
+    "trash",
+    "archived",
+}
 
 
 class CriteriaCreateRequest(BaseModel):
@@ -59,6 +72,10 @@ class MarketWatchPatchRequest(BaseModel):
     frequency: str | None = None
     next_run_at: str | None = None
     source_config: dict[str, Any] | None = None
+
+
+class ListingPatchRequest(BaseModel):
+    status: str | None = None
 
 
 def create_app() -> FastAPI:
@@ -375,6 +392,113 @@ def install_routes(app: FastAPI) -> None:
         finally:
             connection.close()
 
+    @app.get("/api/v1/listings", tags=["listings"])
+    def list_listings(
+        q: str | None = None,
+        status: str | None = None,
+        city: str | None = None,
+        district: str | None = None,
+        watch_id: str | None = None,
+        max_price: float | None = None,
+        min_price: float | None = None,
+        min_surface: float | None = None,
+        min_score: float | None = None,
+        limit: int = Query(default=20, ge=1, le=100),
+        cursor: str | None = None,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        offset = cursor_to_offset(cursor)
+        filters = clean_listing_filters(
+            {
+                "q": q,
+                "status": status,
+                "city": city,
+                "district": district,
+                "watch_id": watch_id,
+                "max_price": max_price,
+                "min_price": min_price,
+                "min_surface": min_surface,
+                "min_score": min_score,
+            }
+        )
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            rows, total, source = search_listing_rows(
+                repositories,
+                user_id=user_id,
+                filters=filters,
+                limit=limit,
+                offset=offset,
+            )
+            next_offset = offset + len(rows)
+            return {
+                "items": [listing_summary_response(row) for row in rows],
+                "next_cursor": str(next_offset) if next_offset < total else None,
+                "total": total,
+                "source": source,
+                "filters": filters,
+            }
+        finally:
+            connection.close()
+
+    @app.get("/api/v1/listings/{listing_id}", tags=["listings"])
+    def get_listing(
+        listing_id: str,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            row = repositories.listings.find_for_user(user_id=user_id, listing_id=listing_id)
+            if row is None:
+                raise resource_not_found("listing_not_found", "Annonce introuvable.", "listing_id", listing_id)
+            return listing_detail_response(row)
+        finally:
+            connection.close()
+
+    @app.patch("/api/v1/listings/{listing_id}", tags=["listings"])
+    def update_listing_decision(
+        listing_id: str,
+        request: ListingPatchRequest,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            existing = repositories.listings.find_for_user(user_id=user_id, listing_id=listing_id)
+            if existing is None:
+                raise resource_not_found("listing_not_found", "Annonce introuvable.", "listing_id", listing_id)
+
+            update_data: dict[str, Any] = {"updated_at": utc_now()}
+            if request.status is not None:
+                if request.status not in VALID_LISTING_STATUSES:
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "code": "invalid_listing_status",
+                            "message": "Statut d'annonce invalide.",
+                            "details": {
+                                "status": request.status,
+                                "allowed": sorted(VALID_LISTING_STATUSES),
+                            },
+                            "retryable": False,
+                        },
+                    )
+                update_data["status"] = request.status
+
+            row = repositories.listings.update(listing_id, update_data)
+            connection.commit()
+            return listing_detail_response(row)
+        finally:
+            connection.close()
+
     @app.post("/api/v1/internal/cron/run-due-watches", tags=["internal"])
     def run_due_watches_from_cron(
         request: Request,
@@ -621,6 +745,48 @@ def agent_event_response(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def listing_summary_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row.get("id") or row.get("listing_id"),
+        "watch_id": row.get("watch_id"),
+        "title": row["title"],
+        "city": row.get("city"),
+        "district": row.get("district"),
+        "price": row.get("price"),
+        "currency": row.get("currency", "EUR"),
+        "surface": row.get("surface"),
+        "rooms": row.get("rooms"),
+        "status": row["status"],
+        "fit_score": row.get("fit_score"),
+        "fit_level": row.get("fit_level"),
+        "risk_flags": json_field(row.get("risk_flags_json"), row.get("risk_flags", [])),
+        "explanation": json_field(row.get("explanation_json"), row.get("explanation", [])),
+        "first_seen_at": row.get("first_seen_at"),
+        "last_seen_at": row.get("last_seen_at"),
+    }
+
+
+def listing_detail_response(row: dict[str, Any]) -> dict[str, Any]:
+    payload = listing_summary_response(row)
+    payload.update(
+        {
+            "source": row["source"],
+            "source_url": row["source_url"],
+            "canonical_url": row["canonical_url"],
+            "source_listing_id": row.get("source_listing_id"),
+            "description": row.get("description"),
+            "postal_code": row.get("postal_code"),
+            "agency_name": row.get("agency_name"),
+            "contact_hint": row.get("contact_hint"),
+            "duplicate_of_listing_id": row.get("duplicate_of_listing_id"),
+            "raw_payload": json_field(row.get("raw_payload_json"), row.get("raw_payload", {})),
+            "created_at": row.get("created_at"),
+            "updated_at": row.get("updated_at"),
+        }
+    )
+    return payload
+
+
 def empty_run_summary() -> dict[str, int]:
     return {
         "scanned_candidates": 0,
@@ -723,6 +889,108 @@ def normalize_optional_header(value: str | None) -> str | None:
         return None
     stripped_value = value.strip()
     return stripped_value or None
+
+
+def clean_listing_filters(filters: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value.strip() if isinstance(value, str) else value
+        for key, value in filters.items()
+        if value is not None and (not isinstance(value, str) or value.strip())
+    }
+
+
+def cursor_to_offset(cursor: str | None) -> int:
+    if cursor is None:
+        return 0
+    try:
+        offset = int(cursor)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_cursor",
+                "message": "Curseur de pagination invalide.",
+                "details": {"cursor": cursor},
+                "retryable": False,
+            },
+        ) from exc
+    if offset < 0:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "invalid_cursor",
+                "message": "Curseur de pagination invalide.",
+                "details": {"cursor": cursor},
+                "retryable": False,
+            },
+        )
+    return offset
+
+
+def search_listing_rows(
+    repositories: Any,
+    *,
+    user_id: str,
+    filters: dict[str, Any],
+    limit: int,
+    offset: int,
+) -> tuple[tuple[dict[str, Any], ...], int, str]:
+    elastic_rows = search_elastic_listings(
+        user_id=user_id,
+        filters=filters,
+        limit=limit,
+        offset=offset,
+    )
+    if elastic_rows is not None:
+        return elastic_rows[0], elastic_rows[1], "elastic"
+
+    rows, total = repositories.listings.search(
+        user_id=user_id,
+        filters=filters,
+        limit=limit,
+        offset=offset,
+    )
+    return rows, total, "sqlite"
+
+
+def search_elastic_listings(
+    *,
+    user_id: str,
+    filters: dict[str, Any],
+    limit: int,
+    offset: int,
+) -> tuple[tuple[dict[str, Any], ...], int] | None:
+    elastic_url = normalize_optional_header(os.environ.get("DOSSIERAGENT_ELASTIC_URL"))
+    if elastic_url is None:
+        return None
+
+    index_name = os.environ.get("DOSSIERAGENT_ELASTIC_LISTINGS_INDEX", "listings_v1")
+    query = build_listing_search_query(user_id=user_id, filters=filters, limit=limit, offset=offset)
+    request = urllib.request.Request(
+        f"{elastic_url.rstrip('/')}/{index_name}/_search",
+        data=json_data(query).encode("utf-8"),
+        method="POST",
+        headers=elastic_headers(),
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=2) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        return None
+
+    hits = payload.get("hits", {})
+    total = hits.get("total", {})
+    total_value = total.get("value", 0) if isinstance(total, dict) else int(total or 0)
+    rows = tuple(hit.get("_source", {}) for hit in hits.get("hits", ()))
+    return rows, int(total_value)
+
+
+def elastic_headers() -> dict[str, str]:
+    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    api_key = normalize_optional_header(os.environ.get("DOSSIERAGENT_ELASTIC_API_KEY"))
+    if api_key is not None:
+        headers["Authorization"] = f"ApiKey {api_key}"
+    return headers
 
 
 def authorize_cron_request(request: Request, authorization: str | None) -> str:

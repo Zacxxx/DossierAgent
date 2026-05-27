@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from .base import SQLiteTableRepository
 from .dashboard import DashboardRepository
 from .idempotency import IdempotencyKeyRepository
+from .listings import ListingRepository
 from .runs import AgentEventRepository, AgentRunRepository
 
 
@@ -15,7 +16,7 @@ class DatabaseRepositories:
     refresh_tokens: SQLiteTableRepository
     search_criteria: SQLiteTableRepository
     market_watches: SQLiteTableRepository
-    listings: SQLiteTableRepository
+    listings: ListingRepository
     dossier_documents: SQLiteTableRepository
     dossier_snapshots: SQLiteTableRepository
     contact_packets: SQLiteTableRepository
@@ -33,7 +34,7 @@ def build_repositories(connection: sqlite3.Connection) -> DatabaseRepositories:
         refresh_tokens=SQLiteTableRepository(connection, "refresh_tokens"),
         search_criteria=SQLiteTableRepository(connection, "search_criteria"),
         market_watches=SQLiteTableRepository(connection, "market_watches"),
-        listings=SQLiteTableRepository(connection, "listings"),
+        listings=ListingRepository(connection),
         dossier_documents=SQLiteTableRepository(connection, "dossier_documents"),
         dossier_snapshots=SQLiteTableRepository(connection, "dossier_snapshots"),
         contact_packets=SQLiteTableRepository(connection, "contact_packets"),
