@@ -1,0 +1,14 @@
+[project]
+name = "dossieragent-core"
+version = "0.1.0"
+description = "Tiny composition core for DossierAgent packages."
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+

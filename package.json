@@ -1,0 +1,21 @@
+{
+  "name": "dossieragent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.3",
+  "workspaces": [
+    "packages/frontend"
+  ],
+  "bin": {
+    "dossieragent": "./scripts/dossieragent.mjs"
+  },
+  "scripts": {
+    "dev": "node scripts/dossieragent.mjs dev",
+    "start": "node scripts/dossieragent.mjs start",
+    "status": "node scripts/dossieragent.mjs status",
+    "packages": "node scripts/dossieragent.mjs packages",
+    "check": "node scripts/dossieragent.mjs check"
+  }
+}
+

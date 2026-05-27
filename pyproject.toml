@@ -1,0 +1,19 @@
+[tool.uv.workspace]
+members = [
+  "packages/agent",
+  "packages/browser",
+  "packages/core",
+  "packages/database",
+  "packages/mcp",
+  "packages/processing",
+  "packages/schedule",
+  "packages/search_engine",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["packages"]
+
