@@ -24,3 +24,10 @@ Elasticsearch package.
 - document indexing
 - hybrid listing search
 
+## Mapping Artifacts
+
+- `mappings/listings_v1.json`
+- `mappings/documents_v1.json`
+
+Both mappings use app-generated `dense_vector` fields with 768 dimensions and
+keep scalar fields for UI filters, sorting, and auditability.

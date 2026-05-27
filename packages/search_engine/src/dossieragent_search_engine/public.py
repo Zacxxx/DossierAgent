@@ -1,3 +1,5 @@
+from .indices import ensure_indices, load_mapping, verify_index_mapping
+
 PACKAGE_MANIFEST = {
     "name": "search_engine",
     "concern": "Elasticsearch mappings, indexing, and hybrid search.",
@@ -23,4 +25,3 @@ PACKAGE_MANIFEST = {
 
 def get_manifest() -> dict[str, object]:
     return dict(PACKAGE_MANIFEST)
-
