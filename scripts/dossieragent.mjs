@@ -100,6 +100,7 @@ const runtimeServices = [
 ];
 
 const mode = process.argv[2] ?? "status";
+const commandArgs = process.argv.slice(3);
 
 switch (mode) {
   case "dev":
@@ -112,12 +113,15 @@ switch (mode) {
   case "packages":
     printPackages();
     break;
+  case "seed":
+    runSeed(commandArgs);
+    break;
   case "check":
     runChecks();
     break;
   default:
     console.error(`Unknown command: ${mode}`);
-    console.error("Usage: dossieragent <dev|start|status|packages|check>");
+    console.error("Usage: dossieragent <dev|start|status|packages|seed|check>");
     process.exit(2);
 }
 
@@ -296,6 +300,19 @@ function printHeader(selectedMode) {
   console.log(`mode: ${selectedMode}`);
   console.log(`root: ${rootDir}`);
   console.log("");
+}
+
+function runSeed(args) {
+  printHeader("seed");
+  const result = spawnSync("python3", ["-m", "dossieragent_database.seed", ...args], {
+    cwd: rootDir,
+    env: {
+      ...process.env,
+      PYTHONPATH: pythonPathForService("database"),
+    },
+    stdio: "inherit",
+  });
+  if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
 function runChecks() {
