@@ -1,4 +1,4 @@
-from .listings import deduplicate_listing, normalize_listing
+from .listings import deduplicate_listing, normalize_listing, rank_listing
 
 PACKAGE_MANIFEST = {
     "name": "processing",

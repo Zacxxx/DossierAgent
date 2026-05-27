@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from dossieragent_processing import deduplicate_listing, normalize_listing
+from dossieragent_processing import deduplicate_listing, normalize_listing, rank_listing
 from dossieragent_processing.listings import DEFAULT_DEDUPE_THRESHOLDS, DedupeThresholds
 
 
@@ -133,6 +133,95 @@ class ListingProcessingTests(unittest.TestCase):
         self.assertEqual(decision.status, "new")
         self.assertIsNone(decision.matched_listing_id)
 
+    def test_rank_listing_strong_match_uses_spec_weights(self) -> None:
+        result = rank_listing(
+            seed_listing(
+                "lst_001",
+                title="T2 Saint-Cyprien proche metro avec balcon",
+                description="Charges detaillees. Disponible maintenant. Metro et commerces.",
+                source_url="https://demo.test/listings/strong",
+                contact_hint="Agence joignable par telephone",
+                address="12 rue de la Republique",
+                first_seen_at="2026-05-27T10:00:00Z",
+            ),
+            toulouse_criteria(),
+            dossier_context={"readiness_score": 78, "can_contact": True},
+            now="2026-05-27T16:00:00Z",
+        )
+
+        self.assertEqual(result.fit_score, 100)
+        self.assertEqual(result.fit_level, "strong")
+        self.assertEqual(
+            result.factor_scores,
+            {
+                "budget": 25.0,
+                "surface": 20.0,
+                "location": 20.0,
+                "text_signals": 15.0,
+                "freshness": 10.0,
+                "dossier_alignment": 10.0,
+            },
+        )
+        self.assertEqual(result.risk_penalty, 0)
+        self.assertEqual(result.risk_flags, ())
+
+    def test_rank_listing_risk_penalties_reduce_score(self) -> None:
+        safe = rank_listing(
+            seed_listing(
+                "lst_001",
+                title="T2 Saint-Cyprien proche metro avec balcon",
+                description="Charges detaillees. Disponible maintenant. Metro et commerces.",
+                source_url="https://demo.test/listings/safe",
+                contact_hint="Agence joignable par telephone",
+                address="12 rue de la Republique",
+                first_seen_at="2026-05-27T10:00:00Z",
+            ),
+            toulouse_criteria(),
+            dossier_context={"readiness_score": 78, "can_contact": True},
+            now="2026-05-27T16:00:00Z",
+        )
+        risky = rank_listing(
+            seed_listing(
+                "lst_002",
+                title="T2 Saint-Cyprien proche metro avec balcon",
+                description="Metro et commerces.",
+                source_url="https://demo.test/listings/risky",
+                first_seen_at="2026-05-27T10:00:00Z",
+            ),
+            toulouse_criteria(),
+            dossier_context={"readiness_score": 78, "can_contact": True},
+            now="2026-05-27T16:00:00Z",
+        )
+
+        self.assertLess(risky.fit_score, safe.fit_score)
+        self.assertEqual(risky.risk_penalty, 30)
+        self.assertIn("charges_non_detaillees", risky.risk_flags)
+        self.assertIn("contact_absent", risky.risk_flags)
+
+    def test_rank_listing_low_match_stays_low(self) -> None:
+        result = rank_listing(
+            seed_listing(
+                "lst_003",
+                title="Studio meuble excentre",
+                description="Petit studio meuble loin du centre.",
+                source_url="https://demo.test/listings/low",
+                city="Montauban",
+                district="Centre",
+                price=930,
+                surface=20,
+                first_seen_at="2026-05-01T10:00:00Z",
+            ),
+            toulouse_criteria(),
+            dossier_context={"readiness_score": 30, "can_contact": False},
+            now="2026-05-27T16:00:00Z",
+        )
+
+        self.assertEqual(result.fit_level, "low")
+        self.assertEqual(result.factor_scores["budget"], 0)
+        self.assertEqual(result.factor_scores["surface"], 0)
+        self.assertEqual(result.factor_scores["location"], 0)
+        self.assertLess(result.fit_score, 50)
+
 
 def seed_listing(
     listing_id: str,
@@ -146,8 +235,11 @@ def seed_listing(
     district: str = "Saint-Cyprien",
     price: float = 790,
     surface: float = 39,
+    contact_hint: str | None = None,
+    address: str | None = None,
+    first_seen_at: str | None = None,
 ) -> dict[str, object]:
-    return {
+    listing: dict[str, object] = {
         "id": listing_id,
         "source": source,
         "source_url": source_url or f"https://demo.test/listings/{listing_id}",
@@ -162,6 +254,23 @@ def seed_listing(
         "surface": surface,
         "rooms": 2,
         "agency_name": "Agence Demo Toulouse",
+    }
+    if contact_hint is not None:
+        listing["contact_hint"] = contact_hint
+    if address is not None:
+        listing["address"] = address
+    if first_seen_at is not None:
+        listing["first_seen_at"] = first_seen_at
+    return listing
+
+
+def toulouse_criteria() -> dict[str, object]:
+    return {
+        "cities": ["Toulouse"],
+        "districts": ["Saint-Cyprien", "Carmes", "Minimes"],
+        "budget_max": 850,
+        "surface_min": 35,
+        "filters": {"must_have": ["metro", "balcon"], "avoid": ["meuble obligatoire"]},
     }
 
 

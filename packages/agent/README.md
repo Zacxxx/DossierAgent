@@ -22,6 +22,11 @@ Supervised agent package.
 
 - `parse_command`
 - `plan_agent_run`
+- `listing_ranker_prompt`
 - `build_contact_packet_instruction`
 - `classify_dossier_instruction`
 
+## Listing Ranker Contract
+
+The listing ranker prompt requires JSON only, forbids inventing missing data,
+and treats the deterministic score from `processing` as immutable.
