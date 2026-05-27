@@ -114,10 +114,26 @@ class RepositoryTests(unittest.TestCase):
                         "created_at": now,
                     }
                 )
+                repos.idempotency_keys.create(
+                    {
+                        "id": "idem_001",
+                        "user_id": user["id"],
+                        "scope": "run_now",
+                        "idempotency_key": "test-key",
+                        "resource_type": "agent_run",
+                        "resource_id": run["id"],
+                        "created_at": now,
+                    }
+                )
 
                 updated_listing = repos.listings.update(listing["id"], {"status": "saved"})
                 events = repos.agent_events.list_for_run(run["id"])
                 counts = repos.dashboard.counts_for_user(user["id"])
+                idempotency_key = repos.idempotency_keys.find_key(
+                    user_id=user["id"],
+                    scope="run_now",
+                    idempotency_key="test-key",
+                )
 
                 self.assertEqual(repos.users.get("usr_001")["email"], "demo@example.com")
                 self.assertEqual(repos.search_criteria.list_by_user(user["id"])[0]["id"], "crit_001")
@@ -127,6 +143,7 @@ class RepositoryTests(unittest.TestCase):
                 self.assertEqual(counts["listings"], 1)
                 self.assertEqual(counts["pending_checks"], 1)
                 self.assertEqual(counts["unread_notifications"], 1)
+                self.assertEqual(idempotency_key["resource_id"], run["id"])
             finally:
                 connection.close()
 
