@@ -58,6 +58,34 @@ The allowed composition point is `packages/core`.
 
 When a package needs another concern, define a port or callable and have `core` provide the implementation at runtime.
 
+## Frontend Foundation
+
+The current static HTML frontend is only a root-launch smoke surface. Do not grow product UI on top of it.
+
+Before implementing dashboard, listings, dossier, contact packet, or E2E frontend work, establish the frontend foundation in `packages/frontend`:
+
+- Vite
+- React
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- lucide-react
+- TanStack Query for API state
+- React Router for page routing
+- Zod for frontend API contract validation when route payloads are non-trivial
+
+Frontend rules:
+
+- UI must read from API routes backed by SQLite seed data or implemented runtime flows.
+- Do not hardcode product/demo state into components.
+- Use shadcn/ui primitives for buttons, panels, inputs, tables, dialogs, tabs, badges, dropdowns, and forms unless there is a clear reason not to.
+- Use lucide-react icons for icon buttons and status affordances.
+- Keep API access in a typed client under `packages/frontend/src/api`.
+- Keep reusable UI primitives under `packages/frontend/src/components/ui`.
+- Keep route-level screens under `packages/frontend/src/routes`.
+- Build dense, desktop-first operational screens as described in `spec-AgentDossier.md`; do not create a marketing landing page.
+- Remove the temporary static shell once the Vite app is root-launchable.
+
 ## Spec Reference Format
 
 Use this format in issue comments and PR descriptions:
@@ -118,4 +146,3 @@ Do not add:
 - large abstractions not demanded by the active issue
 
 Create a new issue for any tempting expansion.
-

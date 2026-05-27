@@ -27,6 +27,7 @@ Goal: create the transactional foundation.
 
 Goal: support the first rental watch lifecycle.
 
+- Frontend foundation with Vite, React, TypeScript, Tailwind, shadcn/ui, lucide-react, TanStack Query, React Router, and Zod
 - Criteria and market watch APIs
 - Run-now endpoint
 - Agent run and event timeline
@@ -77,4 +78,3 @@ Goal: make the partner/demo story credible.
 - Playwright E2E smoke test
 - VM deployment notes
 - Final polish
-
