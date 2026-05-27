@@ -1,2 +1,2 @@
-# Keep this package scaffold directory tracked.
+# SQL migrations live here and are applied in filename order.
 
