@@ -122,6 +122,50 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(patch_watch.json()["status"], "paused")
         self.assertEqual(patch_watch.json()["frequency"], "weekly")
 
+    def test_run_now_lifecycle_respects_idempotency_key(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=tmp_path / "storage")
+            finally:
+                connection.close()
+
+            with patch.dict("os.environ", {"DOSSIERAGENT_SQLITE_PATH": str(database_path)}):
+                first_run = self.client.post(
+                    "/api/v1/market-watches/watch_toulouse_t2/run-now",
+                    headers={"Idempotency-Key": "run-now-test-key"},
+                )
+                replayed_run = self.client.post(
+                    "/api/v1/market-watches/watch_toulouse_t2/run-now",
+                    headers={"Idempotency-Key": "run-now-test-key"},
+                )
+                conflicting_run = self.client.post(
+                    "/api/v1/market-watches/watch_toulouse_t2/run-now",
+                    headers={"Idempotency-Key": "different-key"},
+                )
+                run_id = first_run.json()["run_id"]
+                run_detail = self.client.get(f"/api/v1/agent-runs/{run_id}")
+                run_events = self.client.get(f"/api/v1/agent-runs/{run_id}/events")
+
+        self.assertEqual(first_run.status_code, 202)
+        self.assertEqual(first_run.json()["status"], "running")
+        self.assertFalse(first_run.json()["idempotent_replay"])
+        self.assertEqual(replayed_run.status_code, 202)
+        self.assertEqual(replayed_run.json()["run_id"], first_run.json()["run_id"])
+        self.assertTrue(replayed_run.json()["idempotent_replay"])
+        self.assertEqual(conflicting_run.status_code, 409)
+        self.assertEqual(conflicting_run.json()["error"]["code"], "run_already_active")
+        self.assertEqual(run_detail.status_code, 200)
+        self.assertEqual(run_detail.json()["id"], run_id)
+        self.assertEqual(run_detail.json()["current_step"], "accepted")
+        self.assertEqual(run_events.status_code, 200)
+        self.assertEqual(
+            [event["type"] for event in run_events.json()["items"]],
+            ["run_accepted", "worker_pending"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

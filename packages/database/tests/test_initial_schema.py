@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "notifications",
     "agent_runs",
     "agent_events",
+    "idempotency_keys",
 }
 
 EXPECTED_INDEXES = {
@@ -29,6 +30,7 @@ EXPECTED_INDEXES = {
     "idx_listings_fingerprint",
     "idx_listings_source_listing_id",
     "idx_agent_events_run",
+    "idx_idempotency_keys_lookup",
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -60,7 +62,7 @@ class InitialSchemaTests(unittest.TestCase):
             try:
                 applied = run_migrations(connection)
 
-                self.assertEqual([migration.version for migration in applied], ["0001"])
+                self.assertEqual([migration.version for migration in applied], ["0001", "0002"])
                 self.assertLessEqual(EXPECTED_TABLES, self.table_names(connection))
                 self.assertLessEqual(EXPECTED_INDEXES, self.index_names(connection))
 
@@ -76,7 +78,7 @@ class InitialSchemaTests(unittest.TestCase):
                 first_run = run_migrations(connection)
                 second_run = run_migrations(connection)
 
-                self.assertEqual(len(first_run), 1)
+                self.assertEqual(len(first_run), 2)
                 self.assertEqual(len(second_run), 0)
             finally:
                 connection.close()
@@ -108,4 +110,3 @@ class InitialSchemaTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

@@ -51,6 +51,7 @@ def seed_demo_data(
 
 def clear_demo_data(connection: sqlite3.Connection) -> None:
     for table_name in (
+        "idempotency_keys",
         "agent_events",
         "user_checks",
         "notifications",

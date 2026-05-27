@@ -260,6 +260,153 @@ def install_routes(app: FastAPI) -> None:
         finally:
             connection.close()
 
+    @app.post("/api/v1/market-watches/{watch_id}/run-now", status_code=202, tags=["agent-runs"])
+    def run_market_watch_now(
+        watch_id: str,
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        clean_idempotency_key = normalize_optional_header(idempotency_key)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            ensure_user_exists(repositories, user_id)
+
+            if clean_idempotency_key is not None:
+                existing_key = repositories.idempotency_keys.find_key(
+                    user_id=user_id,
+                    scope="run_now",
+                    idempotency_key=clean_idempotency_key,
+                )
+                if existing_key is not None:
+                    existing_run = repositories.agent_runs.find(existing_key["resource_id"])
+                    if existing_run is not None and existing_run["user_id"] == user_id:
+                        return run_now_response(existing_run, idempotent_replay=True)
+
+            watch = repositories.market_watches.find(watch_id)
+            if watch is None or watch["user_id"] != user_id:
+                raise resource_not_found("market_watch_not_found", "Veille introuvable.", "watch_id", watch_id)
+
+            active_run = repositories.agent_runs.active_for_watch(user_id=user_id, watch_id=watch_id)
+            if active_run is not None:
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "run_already_active",
+                        "message": "Un run est deja actif pour cette veille.",
+                        "details": {"watch_id": watch_id, "run_id": active_run["id"]},
+                        "retryable": True,
+                    },
+                )
+
+            now = utc_now()
+            run_id = new_id("run")
+            run = repositories.agent_runs.create(
+                {
+                    "id": run_id,
+                    "user_id": user_id,
+                    "watch_id": watch_id,
+                    "trigger_type": "manual",
+                    "intent": "run_market_watch",
+                    "status": "running",
+                    "current_step": "accepted",
+                    "summary_json": json_data(empty_run_summary()),
+                    "error_json": None,
+                    "created_at": now,
+                    "updated_at": now,
+                    "completed_at": None,
+                }
+            )
+            repositories.agent_events.create(
+                {
+                    "id": new_id("evt"),
+                    "run_id": run_id,
+                    "user_id": user_id,
+                    "type": "run_accepted",
+                    "severity": "info",
+                    "message": "Run manuel accepte.",
+                    "payload_json": json_data({"watch_id": watch_id, "trigger_type": "manual"}),
+                    "created_at": now,
+                }
+            )
+            repositories.agent_events.create(
+                {
+                    "id": new_id("evt"),
+                    "run_id": run_id,
+                    "user_id": user_id,
+                    "type": "worker_pending",
+                    "severity": "warning",
+                    "message": "Worker browser/processing en attente de connexion.",
+                    "payload_json": json_data({"required_packages": ["browser", "processing"]}),
+                    "created_at": now,
+                }
+            )
+            if clean_idempotency_key is not None:
+                repositories.idempotency_keys.create(
+                    {
+                        "id": new_id("idem"),
+                        "user_id": user_id,
+                        "scope": "run_now",
+                        "idempotency_key": clean_idempotency_key,
+                        "resource_type": "agent_run",
+                        "resource_id": run_id,
+                        "created_at": now,
+                    }
+                )
+            repositories.market_watches.update(
+                watch_id,
+                {
+                    "last_run_at": now,
+                    "updated_at": now,
+                },
+            )
+            connection.commit()
+            return run_now_response(run, idempotent_replay=False)
+        finally:
+            connection.close()
+
+    @app.get("/api/v1/agent-runs/{run_id}", tags=["agent-runs"])
+    def get_agent_run(
+        run_id: str,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            run = repositories.agent_runs.find(run_id)
+            if run is None or run["user_id"] != user_id:
+                raise resource_not_found("agent_run_not_found", "Run introuvable.", "run_id", run_id)
+            return agent_run_response(run)
+        finally:
+            connection.close()
+
+    @app.get("/api/v1/agent-runs/{run_id}/events", tags=["agent-runs"])
+    def get_agent_run_events(
+        run_id: str,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            run = repositories.agent_runs.find(run_id)
+            if run is None or run["user_id"] != user_id:
+                raise resource_not_found("agent_run_not_found", "Run introuvable.", "run_id", run_id)
+            return {
+                "items": [
+                    agent_event_response(event)
+                    for event in repositories.agent_events.list_for_run(run_id)
+                    if event["user_id"] == user_id
+                ]
+            }
+        finally:
+            connection.close()
+
 
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(HTTPException)
@@ -388,6 +535,53 @@ def market_watch_response(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def run_now_response(row: dict[str, Any], *, idempotent_replay: bool) -> dict[str, Any]:
+    return {
+        "run_id": row["id"],
+        "status": row["status"],
+        "summary": json_field(row["summary_json"], {}),
+        "idempotent_replay": idempotent_replay,
+    }
+
+
+def agent_run_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "watch_id": row["watch_id"],
+        "trigger_type": row["trigger_type"],
+        "intent": row["intent"],
+        "status": row["status"],
+        "current_step": row["current_step"],
+        "summary": json_field(row["summary_json"], {}),
+        "error": json_field(row["error_json"], None),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+        "completed_at": row["completed_at"],
+    }
+
+
+def agent_event_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "run_id": row["run_id"],
+        "type": row["type"],
+        "severity": row["severity"],
+        "message": row["message"],
+        "payload": json_field(row["payload_json"], {}),
+        "created_at": row["created_at"],
+    }
+
+
+def empty_run_summary() -> dict[str, int]:
+    return {
+        "scanned_candidates": 0,
+        "new_listings": 0,
+        "duplicates": 0,
+        "reposts": 0,
+        "strong_matches": 0,
+    }
+
+
 def ensure_user_exists(repositories: Any, user_id: str) -> None:
     if repositories.users.find(user_id) is None:
         raise HTTPException(
@@ -415,6 +609,13 @@ def resource_not_found(code: str, message: str, field_name: str, field_value: st
 
 def request_user_id(header_user_id: str | None) -> str:
     return header_user_id or os.environ.get("DOSSIERAGENT_DEMO_USER_ID", DEFAULT_DEMO_USER_ID)
+
+
+def normalize_optional_header(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped_value = value.strip()
+    return stripped_value or None
 
 
 def new_id(prefix: str) -> str:

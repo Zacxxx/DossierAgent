@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 from .base import SQLiteTableRepository
 from .dashboard import DashboardRepository
+from .idempotency import IdempotencyKeyRepository
 from .runs import AgentEventRepository, AgentRunRepository
 
 
@@ -22,6 +23,7 @@ class DatabaseRepositories:
     notifications: SQLiteTableRepository
     agent_runs: AgentRunRepository
     agent_events: AgentEventRepository
+    idempotency_keys: IdempotencyKeyRepository
     dashboard: DashboardRepository
 
 
@@ -39,6 +41,6 @@ def build_repositories(connection: sqlite3.Connection) -> DatabaseRepositories:
         notifications=SQLiteTableRepository(connection, "notifications"),
         agent_runs=AgentRunRepository(connection),
         agent_events=AgentEventRepository(connection),
+        idempotency_keys=IdempotencyKeyRepository(connection),
         dashboard=DashboardRepository(connection),
     )
-
