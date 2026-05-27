@@ -225,6 +225,60 @@ class ApiTests(unittest.TestCase):
         self.assertNotEqual(toulouse_watch["next_run_at"], "2000-01-01T00:00:00Z")
         self.assertIsNotNone(toulouse_watch["last_run_at"])
 
+    def test_listing_search_detail_and_decision_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=tmp_path / "storage")
+            finally:
+                connection.close()
+
+            with patch.dict("os.environ", {"DOSSIERAGENT_SQLITE_PATH": str(database_path)}):
+                recommended = self.client.get(
+                    "/api/v1/listings",
+                    params={"status": "recommended", "limit": 2},
+                )
+                filtered = self.client.get(
+                    "/api/v1/listings",
+                    params={"city": "Toulouse", "district": "Carmes", "min_score": 80},
+                )
+                listing_detail = self.client.get("/api/v1/listings/lst_001")
+                patch_listing = self.client.patch(
+                    "/api/v1/listings/lst_001",
+                    json={"status": "saved"},
+                )
+                patched_detail = self.client.get("/api/v1/listings/lst_001")
+                invalid_patch = self.client.patch(
+                    "/api/v1/listings/lst_001",
+                    json={"status": "emailed"},
+                )
+
+        self.assertEqual(recommended.status_code, 200)
+        recommended_payload = recommended.json()
+        self.assertEqual(recommended_payload["source"], "sqlite")
+        self.assertEqual(recommended_payload["total"], 4)
+        self.assertEqual(len(recommended_payload["items"]), 2)
+        self.assertEqual(recommended_payload["next_cursor"], "2")
+        self.assertEqual(recommended_payload["items"][0]["id"], "lst_001")
+        self.assertEqual(recommended_payload["items"][0]["risk_flags"], ["charges_non_detaillees"])
+
+        self.assertEqual(filtered.status_code, 200)
+        self.assertEqual([item["id"] for item in filtered.json()["items"]], ["lst_002"])
+
+        self.assertEqual(listing_detail.status_code, 200)
+        detail_payload = listing_detail.json()
+        self.assertEqual(detail_payload["id"], "lst_001")
+        self.assertEqual(detail_payload["source_url"], "https://demo.dossieragent.local/listings/001")
+        self.assertIn("Sous le budget maximum", detail_payload["explanation"])
+
+        self.assertEqual(patch_listing.status_code, 200)
+        self.assertEqual(patch_listing.json()["status"], "saved")
+        self.assertEqual(patched_detail.json()["status"], "saved")
+        self.assertEqual(invalid_patch.status_code, 400)
+        self.assertEqual(invalid_patch.json()["error"]["code"], "invalid_listing_status")
+
 
 if __name__ == "__main__":
     unittest.main()

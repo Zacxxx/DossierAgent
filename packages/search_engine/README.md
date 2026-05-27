@@ -31,3 +31,10 @@ Elasticsearch package.
 
 Both mappings use app-generated `dense_vector` fields with 768 dimensions and
 keep scalar fields for UI filters, sorting, and auditability.
+
+## Listing Search Query
+
+`build_listing_search_query` builds an Elasticsearch request body from scalar
+filters (`status`, `city`, `district`, price, surface, score) plus lexical `q`
+search. `core` can call it when Elastic is configured, while SQLite remains the
+local fallback and operational source of truth.

@@ -92,6 +92,7 @@ source = { editable = "packages/core" }
 dependencies = [
     { name = "dossieragent-database" },
     { name = "dossieragent-schedule" },
+    { name = "dossieragent-search-engine" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "uvicorn", extra = ["standard"] },
@@ -101,6 +102,7 @@ dependencies = [
 requires-dist = [
     { name = "dossieragent-database", editable = "packages/database" },
     { name = "dossieragent-schedule", editable = "packages/schedule" },
+    { name = "dossieragent-search-engine", editable = "packages/search_engine" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },

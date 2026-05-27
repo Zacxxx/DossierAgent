@@ -1,4 +1,5 @@
 from .indices import ensure_indices, load_mapping, verify_index_mapping
+from .queries import build_listing_search_query
 
 PACKAGE_MANIFEST = {
     "name": "search_engine",
