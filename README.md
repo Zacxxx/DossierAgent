@@ -49,12 +49,21 @@ Useful commands:
 | `bun run start` / `npm run start` | Production-style root startup entrypoint |
 | `bun run status` / `npm run status` | Show package and service readiness |
 | `bun run packages` / `npm run packages` | List package concerns |
+| `bun run seed` / `npm run seed` | Create/update the deterministic local demo database |
 | `bun run check` / `npm run check` | Compile Python packages and enforce package isolation |
 
 Today the root launcher starts:
 
 - Core API shell: `http://127.0.0.1:8000`
 - Frontend shell: `http://127.0.0.1:5173`
+
+Seed local demo data before exercising API or UI flows:
+
+```bash
+bun run seed
+```
+
+The seed command writes to SQLite and generated demo storage artifacts. API and frontend work should read this state instead of embedding placeholder data.
 
 ## Architecture
 
@@ -103,4 +112,3 @@ Agents and contributors must follow [AGENTS.md](AGENTS.md):
 - Use Playwright for controlled extraction with compliance guards.
 - Use `core` for orchestration only.
 - Prefer visible end-to-end slices over isolated cleverness.
-

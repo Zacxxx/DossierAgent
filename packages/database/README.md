@@ -49,3 +49,19 @@ run_migrations(connection)
 ```
 
 SQL files in `src/dossieragent_database/migrations` are applied in filename order. Applied migrations are tracked in `schema_migrations` and skipped on later runs when the checksum matches.
+
+## Demo Seed
+
+From the repository root:
+
+```bash
+bun run seed
+```
+
+Or directly:
+
+```bash
+PYTHONPATH=packages/database/src python3 -m dossieragent_database.seed
+```
+
+The seed is deterministic and idempotent. It creates the local SQLite database, applies migrations, writes stable demo rows, and generates demo extracted-text files under `storage/extracted_text/demo`.
