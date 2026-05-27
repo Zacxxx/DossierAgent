@@ -1,3 +1,5 @@
+from .listings import deduplicate_listing, normalize_listing
+
 PACKAGE_MANIFEST = {
     "name": "processing",
     "concern": "Normalization, dedupe, ranking, dossier analysis, and packet drafts.",
@@ -26,4 +28,3 @@ PACKAGE_MANIFEST = {
 
 def get_manifest() -> dict[str, object]:
     return dict(PACKAGE_MANIFEST)
-
