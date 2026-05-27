@@ -1,0 +1,39 @@
+name: Feature issue
+description: Implement a spec-backed DossierAgent feature
+title: "[Sprint X] "
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: spec
+    attributes:
+      label: Spec reference
+      description: Link this issue to exact sections in spec-AgentDossier.md.
+      placeholder: |
+        Section:
+        Requirement:
+    validations:
+      required: true
+  - type: textarea
+    id: package
+    attributes:
+      label: Owning package
+      description: Name the package that owns this work and any ports expected from core.
+      placeholder: packages/database
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Concrete checks required before the issue can be closed.
+      placeholder: |
+        - [ ] ...
+        - [ ] bun run check passes
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes
+      description: Constraints, risks, or follow-up issues.
+
