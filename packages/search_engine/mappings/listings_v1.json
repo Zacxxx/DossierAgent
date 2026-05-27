@@ -1,0 +1,35 @@
+{
+  "mappings": {
+    "properties": {
+      "listing_id": { "type": "keyword" },
+      "user_id": { "type": "keyword" },
+      "watch_id": { "type": "keyword" },
+      "source": { "type": "keyword" },
+      "source_url": { "type": "keyword" },
+      "canonical_url": { "type": "keyword" },
+      "canonical_url_hash": { "type": "keyword" },
+      "source_listing_id": { "type": "keyword" },
+      "composite_fingerprint": { "type": "keyword" },
+      "title": { "type": "text" },
+      "description": { "type": "text" },
+      "city": { "type": "keyword" },
+      "district": { "type": "keyword" },
+      "postal_code": { "type": "keyword" },
+      "agency_name": { "type": "keyword" },
+      "price": { "type": "float" },
+      "surface": { "type": "float" },
+      "rooms": { "type": "float" },
+      "status": { "type": "keyword" },
+      "fit_score": { "type": "float" },
+      "first_seen_at": { "type": "date" },
+      "last_seen_at": { "type": "date" },
+      "listing_vector": {
+        "type": "dense_vector",
+        "dims": 768,
+        "index": true,
+        "similarity": "cosine"
+      },
+      "risk_flags": { "type": "keyword" }
+    }
+  }
+}
