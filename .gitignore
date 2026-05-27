@@ -4,11 +4,13 @@
 
 __pycache__/
 *.py[cod]
+*.egg-info/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
 .coverage
 htmlcov/
+.venv/
 
 node_modules/
 dist/
@@ -19,4 +21,3 @@ data/
 storage/
 test-results/
 playwright-report/
-

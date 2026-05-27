@@ -68,7 +68,7 @@ const runtimeServices = [
     name: "api",
     packageName: "core",
     cwd: "packages/core",
-    command: ["python3", "-m", "dossieragent_core.api"],
+    command: ["uv", "run", "python", "-m", "dossieragent_core.api"],
     readyWhen: ["packages/core/src/dossieragent_core/api.py"],
     pending: "FastAPI composition entrypoint has not been created yet.",
   },
@@ -255,8 +255,14 @@ function startService(service) {
 function pythonPathForService(packageName) {
   const ownSrc = join(rootDir, "packages", packageName, "src");
   const coreSrc = join(rootDir, "packages", "core", "src");
+  const composedSrcs =
+    packageName === "core"
+      ? packages
+          .filter((pkg) => pkg.kind === "python" && pkg.name !== "core")
+          .map((pkg) => join(rootDir, "packages", pkg.name, "src"))
+      : [];
   const existing = process.env.PYTHONPATH ? [process.env.PYTHONPATH] : [];
-  return [ownSrc, coreSrc, ...existing].join(":");
+  return [ownSrc, coreSrc, ...composedSrcs, ...existing].join(":");
 }
 
 function prefixStream(stream, label) {

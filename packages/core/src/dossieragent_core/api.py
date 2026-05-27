@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import argparse
-import json
-from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
-from urllib.parse import urlparse
+from uuid import uuid4
+
+import uvicorn
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 
 PACKAGE_STATUS: tuple[dict[str, str], ...] = (
@@ -21,78 +24,133 @@ PACKAGE_STATUS: tuple[dict[str, str], ...] = (
 )
 
 
-class DossierAgentApiHandler(BaseHTTPRequestHandler):
-    server_version = "DossierAgentCore/0.1"
+def create_app() -> FastAPI:
+    app = FastAPI(
+        title="DossierAgent API",
+        version="0.1.0",
+        description="Supervised housing-search and rental dossier command center API.",
+        docs_url="/docs",
+        redoc_url="/redoc",
+        openapi_url="/openapi.json",
+    )
 
-    def do_GET(self) -> None:
-        path = urlparse(self.path).path
-        if path == "/health":
-            self.write_json({"status": "ok", "service": "dossieragent-core"})
-            return
-        if path == "/api/v1/status":
-            self.write_json(
-                {
-                    "status": "bootstrapped",
-                    "message": "DossierAgent core API shell is running.",
-                    "packages": PACKAGE_STATUS,
-                }
-            )
-            return
-        if path in {"/", "/api/v1"}:
-            self.write_json(
-                {
-                    "name": "DossierAgent API",
-                    "version": "0.1.0",
-                    "health": "/health",
-                    "status": "/api/v1/status",
-                }
-            )
-            return
-        self.write_json(
-            {
-                "error": {
-                    "code": "not_found",
-                    "message": "Route not found.",
-                    "details": {"path": path},
-                    "trace_id": "dev-shell",
-                    "retryable": False,
-                }
-            },
-            status=HTTPStatus.NOT_FOUND,
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://127.0.0.1:5173", "http://localhost:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    install_error_handlers(app)
+    install_routes(app)
+    return app
+
+
+def install_routes(app: FastAPI) -> None:
+    @app.get("/health", tags=["system"])
+    def health() -> dict[str, str]:
+        return {"status": "ok", "service": "dossieragent-core"}
+
+    @app.get("/api/v1/status", tags=["system"])
+    def status() -> dict[str, Any]:
+        return {
+            "status": "running",
+            "api_version": "v1",
+            "packages": PACKAGE_STATUS,
+        }
+
+    @app.get("/api/v1", tags=["system"])
+    def api_root() -> dict[str, str]:
+        return {
+            "name": "DossierAgent API",
+            "version": "0.1.0",
+            "health": "/health",
+            "status": "/api/v1/status",
+        }
+
+
+def install_error_handlers(app: FastAPI) -> None:
+    @app.exception_handler(HTTPException)
+    async def http_exception_handler(_request: Request, exc: HTTPException) -> JSONResponse:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        code = str(detail.get("code", status_code_to_error_code(exc.status_code)))
+        message = str(detail.get("message", exc.detail if isinstance(exc.detail, str) else "Request failed."))
+        details = detail.get("details", {})
+        retryable = bool(detail.get("retryable", False))
+        return error_response(
+            status_code=exc.status_code,
+            code=code,
+            message=message,
+            details=details if isinstance(details, dict) else {"details": details},
+            retryable=retryable,
         )
 
-    def do_OPTIONS(self) -> None:
-        self.send_response(HTTPStatus.NO_CONTENT)
-        self.write_common_headers("application/json")
-        self.end_headers()
+    @app.exception_handler(RequestValidationError)
+    async def validation_exception_handler(_request: Request, exc: RequestValidationError) -> JSONResponse:
+        return error_response(
+            status_code=422,
+            code="validation_error",
+            message="Parametres invalides.",
+            details={"errors": exc.errors()},
+            retryable=False,
+        )
 
-    def log_message(self, format: str, *args: Any) -> None:
-        print(f"[core-api] {self.address_string()} - {format % args}")
+    @app.exception_handler(404)
+    async def not_found_handler(request: Request, _exc: HTTPException) -> JSONResponse:
+        return error_response(
+            status_code=404,
+            code="not_found",
+            message="Route introuvable.",
+            details={"path": request.url.path},
+            retryable=False,
+        )
 
-    def write_json(self, payload: dict[str, Any], status: HTTPStatus = HTTPStatus.OK) -> None:
-        body = json.dumps(payload, indent=2).encode("utf-8")
-        self.send_response(status)
-        self.write_common_headers("application/json")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
 
-    def write_common_headers(self, content_type: str) -> None:
-        self.send_header("Content-Type", f"{content_type}; charset=utf-8")
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Authorization, Content-Type")
+def error_response(
+    *,
+    status_code: int,
+    code: str,
+    message: str,
+    details: dict[str, Any] | None = None,
+    retryable: bool = False,
+) -> JSONResponse:
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": {
+                "code": code,
+                "message": message,
+                "details": details or {},
+                "trace_id": f"trc_{uuid4().hex[:12]}",
+                "retryable": retryable,
+            }
+        },
+    )
+
+
+def status_code_to_error_code(status_code: int) -> str:
+    return {
+        400: "bad_request",
+        401: "unauthorized",
+        403: "forbidden",
+        404: "not_found",
+        409: "conflict",
+        422: "validation_error",
+        500: "internal_error",
+    }.get(status_code, "request_failed")
+
+
+app = create_app()
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Run the DossierAgent core API shell.")
+    parser = argparse.ArgumentParser(description="Run the DossierAgent FastAPI app.")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     args = parser.parse_args()
 
-    server = ThreadingHTTPServer((args.host, args.port), DossierAgentApiHandler)
-    print(f"[core-api] listening on http://{args.host}:{args.port}")
-    server.serve_forever()
+    uvicorn.run(app, host=args.host, port=args.port, log_level="info")
 
 
 if __name__ == "__main__":
