@@ -9,6 +9,7 @@ from uuid import uuid4
 
 import uvicorn
 from dossieragent_database import build_repositories, create_connection, run_migrations
+from dossieragent_schedule import compute_next_run_at, find_due_watches
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -28,6 +29,7 @@ PACKAGE_STATUS: tuple[dict[str, str], ...] = (
     {"name": "core", "concern": "Minimal composition and orchestration layer"},
 )
 DEFAULT_DEMO_USER_ID = "usr_demo"
+LOCAL_CRON_HOSTS = {"127.0.0.1", "::1", "localhost", "testclient"}
 
 
 class CriteriaCreateRequest(BaseModel):
@@ -302,46 +304,12 @@ def install_routes(app: FastAPI) -> None:
                 )
 
             now = utc_now()
-            run_id = new_id("run")
-            run = repositories.agent_runs.create(
-                {
-                    "id": run_id,
-                    "user_id": user_id,
-                    "watch_id": watch_id,
-                    "trigger_type": "manual",
-                    "intent": "run_market_watch",
-                    "status": "running",
-                    "current_step": "accepted",
-                    "summary_json": json_data(empty_run_summary()),
-                    "error_json": None,
-                    "created_at": now,
-                    "updated_at": now,
-                    "completed_at": None,
-                }
-            )
-            repositories.agent_events.create(
-                {
-                    "id": new_id("evt"),
-                    "run_id": run_id,
-                    "user_id": user_id,
-                    "type": "run_accepted",
-                    "severity": "info",
-                    "message": "Run manuel accepte.",
-                    "payload_json": json_data({"watch_id": watch_id, "trigger_type": "manual"}),
-                    "created_at": now,
-                }
-            )
-            repositories.agent_events.create(
-                {
-                    "id": new_id("evt"),
-                    "run_id": run_id,
-                    "user_id": user_id,
-                    "type": "worker_pending",
-                    "severity": "warning",
-                    "message": "Worker browser/processing en attente de connexion.",
-                    "payload_json": json_data({"required_packages": ["browser", "processing"]}),
-                    "created_at": now,
-                }
+            run = create_agent_run(
+                repositories,
+                user_id=user_id,
+                watch_id=watch_id,
+                trigger_type="manual",
+                now=now,
             )
             if clean_idempotency_key is not None:
                 repositories.idempotency_keys.create(
@@ -351,7 +319,7 @@ def install_routes(app: FastAPI) -> None:
                         "scope": "run_now",
                         "idempotency_key": clean_idempotency_key,
                         "resource_type": "agent_run",
-                        "resource_id": run_id,
+                        "resource_id": run["id"],
                         "created_at": now,
                     }
                 )
@@ -403,6 +371,87 @@ def install_routes(app: FastAPI) -> None:
                     for event in repositories.agent_events.list_for_run(run_id)
                     if event["user_id"] == user_id
                 ]
+            }
+        finally:
+            connection.close()
+
+    @app.post("/api/v1/internal/cron/run-due-watches", tags=["internal"])
+    def run_due_watches_from_cron(
+        request: Request,
+        authorization: str | None = Header(default=None, alias="Authorization"),
+    ) -> dict[str, Any]:
+        guard = authorize_cron_request(request, authorization)
+        now = utc_now()
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            watches = list_all_market_watches(connection)
+            due_watches = find_due_watches(watches, now=now)
+            started_runs: list[dict[str, Any]] = []
+            skipped_watches: list[dict[str, Any]] = []
+
+            for watch in due_watches:
+                active_run = repositories.agent_runs.active_for_watch(
+                    user_id=watch["user_id"],
+                    watch_id=watch["id"],
+                )
+                if active_run is not None:
+                    skipped_watches.append(
+                        {
+                            "watch_id": watch["id"],
+                            "reason": "run_already_active",
+                            "run_id": active_run["id"],
+                        }
+                    )
+                    continue
+
+                try:
+                    next_run_at = compute_next_run_at(str(watch["frequency"]), from_time=now)
+                except ValueError as exc:
+                    skipped_watches.append(
+                        {
+                            "watch_id": watch["id"],
+                            "reason": "unsupported_frequency",
+                            "message": str(exc),
+                        }
+                    )
+                    continue
+
+                run = create_agent_run(
+                    repositories,
+                    user_id=watch["user_id"],
+                    watch_id=watch["id"],
+                    trigger_type="cron",
+                    now=now,
+                )
+                repositories.market_watches.update(
+                    watch["id"],
+                    {
+                        "last_run_at": now,
+                        "next_run_at": next_run_at,
+                        "updated_at": now,
+                    },
+                )
+                started_runs.append(
+                    {
+                        "run_id": run["id"],
+                        "watch_id": watch["id"],
+                        "status": run["status"],
+                        "next_run_at": next_run_at,
+                    }
+                )
+
+            connection.commit()
+            return {
+                "status": "ok",
+                "guard": guard,
+                "now": now,
+                "due_count": len(due_watches),
+                "started_count": len(started_runs),
+                "skipped_count": len(skipped_watches),
+                "runs": started_runs,
+                "skipped": skipped_watches,
             }
         finally:
             connection.close()
@@ -582,6 +631,64 @@ def empty_run_summary() -> dict[str, int]:
     }
 
 
+def create_agent_run(
+    repositories: Any,
+    *,
+    user_id: str,
+    watch_id: str,
+    trigger_type: str,
+    now: str,
+) -> dict[str, Any]:
+    run_id = new_id("run")
+    run = repositories.agent_runs.create(
+        {
+            "id": run_id,
+            "user_id": user_id,
+            "watch_id": watch_id,
+            "trigger_type": trigger_type,
+            "intent": "run_market_watch",
+            "status": "running",
+            "current_step": "accepted",
+            "summary_json": json_data(empty_run_summary()),
+            "error_json": None,
+            "created_at": now,
+            "updated_at": now,
+            "completed_at": None,
+        }
+    )
+    repositories.agent_events.create(
+        {
+            "id": new_id("evt"),
+            "run_id": run_id,
+            "user_id": user_id,
+            "type": "run_accepted",
+            "severity": "info",
+            "message": accepted_run_message(trigger_type),
+            "payload_json": json_data({"watch_id": watch_id, "trigger_type": trigger_type}),
+            "created_at": now,
+        }
+    )
+    repositories.agent_events.create(
+        {
+            "id": new_id("evt"),
+            "run_id": run_id,
+            "user_id": user_id,
+            "type": "worker_pending",
+            "severity": "warning",
+            "message": "Worker browser/processing en attente de connexion.",
+            "payload_json": json_data({"required_packages": ["browser", "processing"]}),
+            "created_at": now,
+        }
+    )
+    return run
+
+
+def accepted_run_message(trigger_type: str) -> str:
+    if trigger_type == "cron":
+        return "Run planifie accepte."
+    return "Run manuel accepte."
+
+
 def ensure_user_exists(repositories: Any, user_id: str) -> None:
     if repositories.users.find(user_id) is None:
         raise HTTPException(
@@ -616,6 +723,47 @@ def normalize_optional_header(value: str | None) -> str | None:
         return None
     stripped_value = value.strip()
     return stripped_value or None
+
+
+def authorize_cron_request(request: Request, authorization: str | None) -> str:
+    configured_secret = normalize_optional_header(os.environ.get("DOSSIERAGENT_CRON_SECRET"))
+    clean_authorization = normalize_optional_header(authorization)
+    if configured_secret is not None:
+        if clean_authorization == f"Bearer {configured_secret}":
+            return "secret"
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "cron_secret_required",
+                "message": "Secret cron invalide ou manquant.",
+                "details": {},
+                "retryable": False,
+            },
+        )
+
+    client_host = request.client.host if request.client is not None else None
+    if client_host in LOCAL_CRON_HOSTS:
+        return "local"
+
+    raise HTTPException(
+        status_code=403,
+        detail={
+            "code": "local_cron_only",
+            "message": "Route cron limitee aux appels locaux quand aucun secret n'est configure.",
+            "details": {"client_host": client_host},
+            "retryable": False,
+        },
+    )
+
+
+def list_all_market_watches(connection: Any) -> tuple[dict[str, Any], ...]:
+    rows = connection.execute(
+        """
+        SELECT * FROM market_watches
+        ORDER BY next_run_at IS NULL, next_run_at ASC, created_at ASC
+        """
+    ).fetchall()
+    return tuple({key: row[key] for key in row.keys()} for row in rows)
 
 
 def new_id(prefix: str) -> str:

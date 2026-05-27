@@ -166,6 +166,65 @@ class ApiTests(unittest.TestCase):
             ["run_accepted", "worker_pending"],
         )
 
+    def test_cron_route_requires_secret_and_runs_due_watches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=tmp_path / "storage")
+                connection.execute(
+                    """
+                    UPDATE market_watches
+                    SET next_run_at = ?
+                    WHERE id = ?
+                    """,
+                    ("2000-01-01T00:00:00Z", "watch_toulouse_t2"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "DOSSIERAGENT_SQLITE_PATH": str(database_path),
+                    "DOSSIERAGENT_CRON_SECRET": "cron-test-secret",
+                },
+            ):
+                missing_secret = self.client.post("/api/v1/internal/cron/run-due-watches")
+                authorized = self.client.post(
+                    "/api/v1/internal/cron/run-due-watches",
+                    headers={"Authorization": "Bearer cron-test-secret"},
+                )
+                run_id = authorized.json()["runs"][0]["run_id"]
+                run_detail = self.client.get(f"/api/v1/agent-runs/{run_id}")
+                run_events = self.client.get(f"/api/v1/agent-runs/{run_id}/events")
+                watches = self.client.get("/api/v1/market-watches")
+
+        self.assertEqual(missing_secret.status_code, 403)
+        self.assertEqual(missing_secret.json()["error"]["code"], "cron_secret_required")
+        self.assertEqual(authorized.status_code, 200)
+        self.assertEqual(authorized.json()["guard"], "secret")
+        self.assertEqual(authorized.json()["due_count"], 1)
+        self.assertEqual(authorized.json()["started_count"], 1)
+        self.assertEqual(authorized.json()["skipped_count"], 0)
+        self.assertEqual(authorized.json()["runs"][0]["watch_id"], "watch_toulouse_t2")
+        self.assertEqual(run_detail.status_code, 200)
+        self.assertEqual(run_detail.json()["trigger_type"], "cron")
+        self.assertEqual(run_detail.json()["current_step"], "accepted")
+        self.assertEqual(run_events.status_code, 200)
+        self.assertEqual(
+            [event["type"] for event in run_events.json()["items"]],
+            ["run_accepted", "worker_pending"],
+        )
+        self.assertEqual(watches.status_code, 200)
+        toulouse_watch = next(
+            item for item in watches.json()["items"] if item["id"] == "watch_toulouse_t2"
+        )
+        self.assertNotEqual(toulouse_watch["next_run_at"], "2000-01-01T00:00:00Z")
+        self.assertIsNotNone(toulouse_watch["last_run_at"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -91,6 +91,7 @@ version = "0.1.0"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "dossieragent-database" },
+    { name = "dossieragent-schedule" },
     { name = "fastapi" },
     { name = "httpx" },
     { name = "uvicorn", extra = ["standard"] },
@@ -99,6 +100,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "dossieragent-database", editable = "packages/database" },
+    { name = "dossieragent-schedule", editable = "packages/schedule" },
     { name = "fastapi", specifier = ">=0.115" },
     { name = "httpx", specifier = ">=0.27" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.32" },
