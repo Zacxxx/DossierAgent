@@ -39,3 +39,15 @@ Thresholds live in `DedupeThresholds` and default to:
 - duplicate: `>= 0.92`
 - repost: `>= 0.82`
 - changed listing: `>= 0.75` with price or surface variation
+
+## Listing Ranking
+
+`rank_listing` applies the spec weights deterministically:
+
+- budget: 25
+- surface: 20
+- location: 20
+- text signals: 15
+- freshness: 10
+- dossier alignment: 10
+- risk penalties: up to -30

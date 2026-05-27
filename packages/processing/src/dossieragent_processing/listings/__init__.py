@@ -14,6 +14,7 @@ from .normalization import (
     normalize_listing,
     normalize_text,
 )
+from .ranking import RANKING_WEIGHTS, RISK_PENALTIES, RankingResult, rank_listing
 
 __all__ = [
     "DEFAULT_DEDUPE_THRESHOLDS",
@@ -21,6 +22,9 @@ __all__ = [
     "DedupeStatus",
     "DedupeThresholds",
     "NormalizedListing",
+    "RANKING_WEIGHTS",
+    "RISK_PENALTIES",
+    "RankingResult",
     "canonicalize_url",
     "canonical_url_hash",
     "composite_fingerprint",
@@ -28,4 +32,5 @@ __all__ = [
     "listing_similarity",
     "normalize_listing",
     "normalize_text",
+    "rank_listing",
 ]
