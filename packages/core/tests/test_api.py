@@ -64,6 +64,64 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["notifications_unread"], 5)
         self.assertEqual(len(payload["recommended_listings"]), 4)
 
+    def test_criteria_and_market_watch_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=tmp_path / "storage")
+            finally:
+                connection.close()
+
+            with patch.dict("os.environ", {"DOSSIERAGENT_SQLITE_PATH": str(database_path)}):
+                create_criteria = self.client.post(
+                    "/api/v1/criteria",
+                    json={
+                        "mode": "rent",
+                        "cities": ["Lyon"],
+                        "districts": ["Croix-Rousse"],
+                        "budget_max": 900,
+                        "surface_min": 32,
+                        "rooms_min": 2,
+                        "languages": ["fr"],
+                        "filters": {"must_have": ["metro"]},
+                    },
+                )
+                criteria_list = self.client.get("/api/v1/criteria")
+
+                criteria_id = create_criteria.json()["id"]
+                create_watch = self.client.post(
+                    "/api/v1/market-watches",
+                    json={
+                        "criteria_id": criteria_id,
+                        "name": "Lyon T2",
+                        "status": "active",
+                        "frequency": "daily",
+                        "next_run_at": "2026-05-28T08:00:00Z",
+                        "source_config": {"sources": ["manual_urls"]},
+                    },
+                )
+                watch_id = create_watch.json()["id"]
+                watch_list = self.client.get("/api/v1/market-watches")
+                patch_watch = self.client.patch(
+                    f"/api/v1/market-watches/{watch_id}",
+                    json={"status": "paused", "frequency": "weekly"},
+                )
+
+        self.assertEqual(create_criteria.status_code, 201)
+        self.assertEqual(create_criteria.json()["cities"], ["Lyon"])
+        self.assertEqual(criteria_list.status_code, 200)
+        self.assertIn(criteria_id, {item["id"] for item in criteria_list.json()["items"]})
+
+        self.assertEqual(create_watch.status_code, 201)
+        self.assertEqual(create_watch.json()["criteria_id"], criteria_id)
+        self.assertEqual(watch_list.status_code, 200)
+        self.assertIn(watch_id, {item["id"] for item in watch_list.json()["items"]})
+        self.assertEqual(patch_watch.status_code, 200)
+        self.assertEqual(patch_watch.json()["status"], "paused")
+        self.assertEqual(patch_watch.json()["frequency"], "weekly")
+
 
 if __name__ == "__main__":
     unittest.main()
