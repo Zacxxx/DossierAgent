@@ -348,6 +348,17 @@ function runChecks() {
     failures.push("Python compile check failed.");
   }
 
+  for (const pkg of packages.filter((entry) => entry.kind === "node")) {
+    if (!hasPackageScript(pkg.name, "check")) continue;
+    const checkResult = spawnSync(detectPackageManager(), ["run", "check"], {
+      cwd: packageRoot(pkg.name),
+      stdio: "inherit",
+    });
+    if (checkResult.status !== 0) {
+      failures.push(`${pkg.name} check failed.`);
+    }
+  }
+
   failures.push(...checkFeaturePackageImports());
 
   if (failures.length > 0) {
