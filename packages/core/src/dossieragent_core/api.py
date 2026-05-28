@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import uvicorn
 from dossieragent_database import build_repositories, create_connection, run_migrations
-from dossieragent_processing import analyze_dossier, extract_pdf_text
+from dossieragent_processing import analyze_dossier, build_contact_packet, extract_pdf_text
 from dossieragent_schedule import compute_next_run_at, find_due_watches
 from dossieragent_search_engine import build_listing_search_query
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -80,6 +80,13 @@ class MarketWatchPatchRequest(BaseModel):
 
 class ListingPatchRequest(BaseModel):
     status: str | None = None
+
+
+class ContactPacketCreateRequest(BaseModel):
+    listing_id: str
+    language: str = "fr"
+    tone: str = "polite_direct"
+    include_dossier_summary: bool = True
 
 
 def create_app() -> FastAPI:
@@ -648,6 +655,82 @@ def install_routes(app: FastAPI) -> None:
         finally:
             connection.close()
 
+    @app.post("/api/v1/contact-packets", status_code=201, tags=["contact-packets"])
+    def create_contact_packet(
+        request: ContactPacketCreateRequest,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            ensure_user_exists(repositories, user_id)
+            listing = repositories.listings.find_for_user(user_id=user_id, listing_id=request.listing_id)
+            if listing is None:
+                raise resource_not_found("listing_not_found", "Annonce introuvable.", "listing_id", request.listing_id)
+
+            snapshot = repositories.dossier_snapshots.latest_for_user(user_id)
+            dossier_summary = dossier_summary_for_packet(snapshot) if request.include_dossier_summary else {}
+            try:
+                draft = build_contact_packet(
+                    listing,
+                    dossier_summary=dossier_summary,
+                    language=request.language,
+                    tone=request.tone,
+                    include_dossier_summary=request.include_dossier_summary,
+                )
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "unsupported_contact_packet_option",
+                        "message": str(exc),
+                        "details": {"language": request.language, "tone": request.tone},
+                        "retryable": False,
+                    },
+                ) from exc
+
+            now = utc_now()
+            packet = repositories.contact_packets.create(
+                {
+                    "id": new_id("pkt"),
+                    "user_id": user_id,
+                    "listing_id": listing["id"],
+                    "language": request.language,
+                    "tone": request.tone,
+                    "status": "ready_for_review",
+                    "message_draft": draft.message_draft,
+                    "questions_json": json_data(list(draft.questions_to_ask)),
+                    "dossier_summary_json": json_data(dict(draft.dossier_summary)),
+                    "used_at": None,
+                    "used_channel": None,
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            check = repositories.user_checks.create(
+                {
+                    "id": new_id("chk"),
+                    "user_id": user_id,
+                    "type": "contact_packet_review",
+                    "resource_type": "contact_packet",
+                    "resource_id": packet["id"],
+                    "title": "Relire le paquet de contact",
+                    "summary": f"Paquet pret pour {listing['title']}. Validation obligatoire avant usage.",
+                    "status": "pending",
+                    "payload_json": json_data({"packet_id": packet["id"], "listing_id": listing["id"]}),
+                    "completed_with": None,
+                    "completed_note": None,
+                    "created_at": now,
+                    "completed_at": None,
+                }
+            )
+            connection.commit()
+            return contact_packet_response(packet, user_check_id=check["id"])
+        finally:
+            connection.close()
+
     @app.post("/api/v1/internal/cron/run-due-watches", tags=["internal"])
     def run_due_watches_from_cron(
         request: Request,
@@ -1005,6 +1088,22 @@ def dossier_snapshot_response(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def dossier_summary_for_packet(row: dict[str, Any] | None) -> dict[str, Any]:
+    if row is None:
+        return {
+            "can_contact": False,
+            "can_send_full_dossier": False,
+            "missing_documents": [],
+            "readiness_score": None,
+        }
+    return {
+        "can_contact": bool(row["can_contact"]),
+        "can_send_full_dossier": bool(row["can_send_full_dossier"]),
+        "missing_documents": missing_document_types(json_field(row.get("missing_documents_json"), [])),
+        "readiness_score": row["readiness_score"],
+    }
+
+
 def missing_document_types(value: Any) -> list[str]:
     documents = value if isinstance(value, list) else []
     types: list[str] = []
@@ -1014,6 +1113,26 @@ def missing_document_types(value: Any) -> list[str]:
         elif isinstance(document, str):
             types.append(document)
     return types
+
+
+def contact_packet_response(row: dict[str, Any], *, user_check_id: str | None = None) -> dict[str, Any]:
+    payload = {
+        "id": row["id"],
+        "listing_id": row["listing_id"],
+        "status": row["status"],
+        "language": row["language"],
+        "tone": row["tone"],
+        "message_draft": row["message_draft"],
+        "questions_to_ask": json_field(row.get("questions_json"), []),
+        "dossier_summary": json_field(row.get("dossier_summary_json"), {}),
+        "used_at": row.get("used_at"),
+        "used_channel": row.get("used_channel"),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+    if user_check_id is not None:
+        payload["user_check_id"] = user_check_id
+    return payload
 
 
 def empty_run_summary() -> dict[str, int]:

@@ -8,9 +8,11 @@ from .migration_runner import (
 from .public import PACKAGE_MANIFEST, get_manifest
 from .repositories import (
     DatabaseRepositories,
+    ContactPacketRepository,
     DossierDocumentRepository,
     DossierSnapshotRepository,
     SQLiteTableRepository,
+    UserCheckRepository,
     build_repositories,
 )
 
@@ -19,10 +21,12 @@ __all__ = [
     "Migration",
     "MigrationChecksumMismatch",
     "PACKAGE_MANIFEST",
+    "ContactPacketRepository",
     "DatabaseRepositories",
     "DossierDocumentRepository",
     "DossierSnapshotRepository",
     "SQLiteTableRepository",
+    "UserCheckRepository",
     "build_repositories",
     "create_connection",
     "get_manifest",

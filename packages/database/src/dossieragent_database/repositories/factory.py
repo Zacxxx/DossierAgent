@@ -4,11 +4,13 @@ import sqlite3
 from dataclasses import dataclass
 
 from .base import SQLiteTableRepository
+from .contact_packets import ContactPacketRepository
 from .dashboard import DashboardRepository
 from .dossier import DossierDocumentRepository, DossierSnapshotRepository
 from .idempotency import IdempotencyKeyRepository
 from .listings import ListingRepository
 from .runs import AgentEventRepository, AgentRunRepository
+from .user_checks import UserCheckRepository
 
 
 @dataclass(frozen=True, slots=True)
@@ -20,8 +22,8 @@ class DatabaseRepositories:
     listings: ListingRepository
     dossier_documents: DossierDocumentRepository
     dossier_snapshots: DossierSnapshotRepository
-    contact_packets: SQLiteTableRepository
-    user_checks: SQLiteTableRepository
+    contact_packets: ContactPacketRepository
+    user_checks: UserCheckRepository
     notifications: SQLiteTableRepository
     agent_runs: AgentRunRepository
     agent_events: AgentEventRepository
@@ -38,8 +40,8 @@ def build_repositories(connection: sqlite3.Connection) -> DatabaseRepositories:
         listings=ListingRepository(connection),
         dossier_documents=DossierDocumentRepository(connection),
         dossier_snapshots=DossierSnapshotRepository(connection),
-        contact_packets=SQLiteTableRepository(connection, "contact_packets"),
-        user_checks=SQLiteTableRepository(connection, "user_checks"),
+        contact_packets=ContactPacketRepository(connection),
+        user_checks=UserCheckRepository(connection),
         notifications=SQLiteTableRepository(connection, "notifications"),
         agent_runs=AgentRunRepository(connection),
         agent_events=AgentEventRepository(connection),
