@@ -5,6 +5,7 @@ from .dossier import DossierDocumentRepository, DossierSnapshotRepository
 from .factory import DatabaseRepositories, build_repositories
 from .idempotency import IdempotencyKeyRepository
 from .listings import ListingRepository
+from .notifications import NotificationRepository
 from .runs import AgentEventRepository, AgentRunRepository
 from .user_checks import UserCheckRepository
 
@@ -18,6 +19,7 @@ __all__ = [
     "DossierSnapshotRepository",
     "IdempotencyKeyRepository",
     "ListingRepository",
+    "NotificationRepository",
     "SQLiteTableRepository",
     "UserCheckRepository",
     "build_repositories",

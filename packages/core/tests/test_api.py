@@ -470,6 +470,52 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(check_row["resource_type"], "contact_packet")
         self.assertEqual(check_row["resource_id"], packet_id)
 
+    def test_user_checks_and_notifications_lifecycle(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            storage_path = tmp_path / "storage"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=storage_path)
+            finally:
+                connection.close()
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "DOSSIERAGENT_SQLITE_PATH": str(database_path),
+                    "DOSSIERAGENT_STORAGE_PATH": str(storage_path),
+                },
+            ):
+                checks_response = self.client.get("/api/v1/user-checks")
+                check_id = checks_response.json()["items"][0]["id"]
+                complete_response = self.client.post(
+                    f"/api/v1/user-checks/{check_id}/complete",
+                    json={"decision": "approved", "note": "Message correct."},
+                )
+                completed_checks_response = self.client.get("/api/v1/user-checks")
+
+                notifications_response = self.client.get("/api/v1/notifications")
+                unread_response = self.client.get("/api/v1/notifications?unread_only=true")
+                notification_id = notifications_response.json()["items"][0]["id"]
+                read_response = self.client.post(f"/api/v1/notifications/{notification_id}/read")
+                unread_after_response = self.client.get("/api/v1/notifications?unread_only=true")
+
+        self.assertEqual(checks_response.status_code, 200)
+        self.assertEqual(len(checks_response.json()["items"]), 3)
+        self.assertEqual(complete_response.status_code, 200)
+        self.assertEqual(complete_response.json()["status"], "completed")
+        self.assertEqual(complete_response.json()["completed_with"], "approved")
+        self.assertEqual(len(completed_checks_response.json()["items"]), 2)
+
+        self.assertEqual(notifications_response.status_code, 200)
+        self.assertEqual(len(notifications_response.json()["items"]), 5)
+        self.assertEqual(len(unread_response.json()["items"]), 5)
+        self.assertEqual(read_response.status_code, 200)
+        self.assertIsNotNone(read_response.json()["read_at"])
+        self.assertEqual(len(unread_after_response.json()["items"]), 4)
+
 
 def build_pdf_bytes(text: str) -> bytes:
     import fitz
