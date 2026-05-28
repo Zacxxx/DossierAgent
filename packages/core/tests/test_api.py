@@ -414,6 +414,62 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(analyzed_payload["missing_docs"], ["employment_contract", "latest_tax_notice"])
         self.assertEqual(latest_response.json()["snapshot_id"], analyzed_payload["snapshot_id"])
 
+    def test_contact_packet_creation_creates_pending_user_check(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            storage_path = tmp_path / "storage"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=storage_path)
+            finally:
+                connection.close()
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "DOSSIERAGENT_SQLITE_PATH": str(database_path),
+                    "DOSSIERAGENT_STORAGE_PATH": str(storage_path),
+                },
+            ):
+                response = self.client.post(
+                    "/api/v1/contact-packets",
+                    json={
+                        "listing_id": "lst_001",
+                        "language": "fr",
+                        "tone": "polite_direct",
+                        "include_dossier_summary": True,
+                    },
+                )
+
+            packet_id = response.json()["id"]
+            user_check_id = response.json()["user_check_id"]
+            connection = create_connection(database_path)
+            try:
+                packet_row = connection.execute(
+                    "SELECT * FROM contact_packets WHERE id = ?",
+                    (packet_id,),
+                ).fetchone()
+                check_row = connection.execute(
+                    "SELECT * FROM user_checks WHERE id = ?",
+                    (user_check_id,),
+                ).fetchone()
+            finally:
+                connection.close()
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(payload["status"], "ready_for_review")
+        self.assertEqual(payload["listing_id"], "lst_001")
+        self.assertIn("T2 Saint-Cyprien", payload["message_draft"])
+        self.assertTrue(payload["questions_to_ask"])
+        self.assertEqual(payload["dossier_summary"]["missing_documents"], ["employment_contract", "latest_tax_notice"])
+        self.assertFalse(payload["dossier_summary"]["can_send_full_dossier"])
+        self.assertEqual(packet_row["status"], "ready_for_review")
+        self.assertEqual(check_row["status"], "pending")
+        self.assertEqual(check_row["resource_type"], "contact_packet")
+        self.assertEqual(check_row["resource_id"], packet_id)
+
 
 def build_pdf_bytes(text: str) -> bytes:
     import fitz

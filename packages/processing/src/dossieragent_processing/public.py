@@ -1,3 +1,4 @@
+from .contact_packets import build_contact_packet
 from .dossier import analyze_dossier, extract_pdf_text
 from .listings import deduplicate_listing, normalize_listing, rank_listing
 

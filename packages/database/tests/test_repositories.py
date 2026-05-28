@@ -161,6 +161,21 @@ class RepositoryTests(unittest.TestCase):
                         "created_at": now,
                     }
                 )
+                packet = repos.contact_packets.create(
+                    {
+                        "id": "pkt_001",
+                        "user_id": user["id"],
+                        "listing_id": listing["id"],
+                        "language": "fr",
+                        "tone": "polite_direct",
+                        "status": "ready_for_review",
+                        "message_draft": "Bonjour, je vous contacte au sujet du T2.",
+                        "questions_json": '["Une visite est elle possible ?"]',
+                        "dossier_summary_json": '{"can_contact":true}',
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                )
 
                 updated_listing = repos.listings.update(listing["id"], {"status": "saved"})
                 listing_search_rows, listing_search_total = repos.listings.search(
@@ -186,6 +201,8 @@ class RepositoryTests(unittest.TestCase):
                 )
                 active_documents = repos.dossier_documents.list_active_for_user(user["id"])
                 latest_snapshot = repos.dossier_snapshots.latest_for_user(user["id"])
+                found_packet = repos.contact_packets.find_for_user(user_id=user["id"], packet_id=packet["id"])
+                pending_checks = repos.user_checks.list_pending_for_user(user["id"])
 
                 self.assertEqual(repos.users.get("usr_001")["email"], "demo@example.com")
                 self.assertEqual(repos.search_criteria.list_by_user(user["id"])[0]["id"], "crit_001")
@@ -202,6 +219,8 @@ class RepositoryTests(unittest.TestCase):
                 self.assertEqual(found_document["detected_type"], "payslip")
                 self.assertEqual(active_documents[0]["id"], "doc_001")
                 self.assertEqual(latest_snapshot["id"], snapshot["id"])
+                self.assertEqual(found_packet["id"], packet["id"])
+                self.assertEqual(pending_checks[0]["id"], "chk_001")
             finally:
                 connection.close()
 
