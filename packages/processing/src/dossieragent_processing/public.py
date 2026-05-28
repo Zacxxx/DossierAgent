@@ -1,3 +1,4 @@
+from .dossier import extract_pdf_text
 from .listings import deduplicate_listing, normalize_listing, rank_listing
 
 PACKAGE_MANIFEST = {
@@ -15,6 +16,7 @@ PACKAGE_MANIFEST = {
         "normalize_listing",
         "deduplicate_listing",
         "rank_listing",
+        "extract_pdf_text",
         "analyze_dossier",
         "build_contact_packet",
     ),

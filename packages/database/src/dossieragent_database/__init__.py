@@ -6,7 +6,12 @@ from .migration_runner import (
     run_migrations,
 )
 from .public import PACKAGE_MANIFEST, get_manifest
-from .repositories import DatabaseRepositories, SQLiteTableRepository, build_repositories
+from .repositories import (
+    DatabaseRepositories,
+    DossierDocumentRepository,
+    SQLiteTableRepository,
+    build_repositories,
+)
 
 __all__ = [
     "AppliedMigration",
@@ -14,6 +19,7 @@ __all__ = [
     "MigrationChecksumMismatch",
     "PACKAGE_MANIFEST",
     "DatabaseRepositories",
+    "DossierDocumentRepository",
     "SQLiteTableRepository",
     "build_repositories",
     "create_connection",
