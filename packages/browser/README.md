@@ -30,6 +30,7 @@ Playwright extraction package.
 
 - `python3 -m dossieragent_browser.worker`
 - `python3 -m dossieragent_browser.worker --url https://example.test/listing --html-file /tmp/listing.html`
+- `python3 -m dossieragent_browser.worker --job-json '{"source":"demo_seed","mode":"list_page","criteria":{"url":"https://demo.example/search"}}' --html-file /tmp/list.html`
 
 The worker never attempts login or captcha bypass. Direct URL extraction can use Playwright for live pages, while tests and seeded runs can pass already-rendered HTML through `--html-file`.
 
