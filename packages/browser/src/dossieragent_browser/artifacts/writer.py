@@ -43,10 +43,16 @@ class ArtifactWriter:
         job: BrowserJob,
         candidate: Mapping[str, Any],
         html: str | None = None,
+        screenshot: bytes | None = None,
+        trace: bytes | None = None,
     ) -> tuple[Path, ...]:
         paths = [self.write_json(job, "listing.json", candidate)]
         if html:
             paths.append(self.write_text(job, "page.html", html))
+        if screenshot:
+            paths.append(self.write_bytes(job, "screenshot.png", screenshot))
+        if trace:
+            paths.append(self.write_bytes(job, "trace.zip", trace))
         return tuple(paths)
 
     def write_failure(
@@ -56,6 +62,7 @@ class ArtifactWriter:
         *,
         html: str | None = None,
         screenshot: bytes | None = None,
+        trace: bytes | None = None,
     ) -> tuple[Path, ...]:
         payload = {
             "job": job.as_dict(),
@@ -69,4 +76,6 @@ class ArtifactWriter:
             paths.append(self.write_text(job, "page.html", html))
         if screenshot:
             paths.append(self.write_bytes(job, "screenshot.png", screenshot))
+        if trace:
+            paths.append(self.write_bytes(job, "trace.zip", trace))
         return tuple(paths)
