@@ -7,8 +7,9 @@ from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
 
+from dossieragent_browser.adapters import UnknownSourceError, default_adapter_registry
 from dossieragent_browser.artifacts import ArtifactWriter
-from dossieragent_browser.extractors import ExtractionRejected, extract_listing_details
+from dossieragent_browser.extractors import ExtractionRejected, extract_listing_details, extract_listing_urls
 from dossieragent_browser.guards import ComplianceGuard
 from dossieragent_browser.jobs import BrowserJob, BrowserJobError
 from dossieragent_browser.worker import main, run_browser_job
@@ -47,6 +48,25 @@ LISTING_HTML = """
       <h1>T2 Saint-Cyprien proche metro</h1>
       <p>39 m2 - 2 pieces - contact agence.</p>
     </main>
+  </body>
+</html>
+"""
+
+LIST_PAGE_HTML = """
+<!doctype html>
+<html>
+  <body>
+    <section data-results>
+      <a href="/listings/seed-001" data-listing-id="seed-001" data-price="790"
+         data-surface="39" data-city="Toulouse" data-district="Saint-Cyprien">
+        T2 Saint-Cyprien proche metro - 790 EUR - 39 m2
+      </a>
+      <a href="https://demo.example/listings/seed-002" data-listing-id="seed-002">
+        T2 Carmes calme - 820 EUR - 38 m2
+      </a>
+      <a href="mailto:agency@example.test">Contact</a>
+      <a href="/listings/seed-001">Duplicate</a>
+    </section>
   </body>
 </html>
 """
@@ -191,6 +211,49 @@ class BrowserDirectUrlTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 0)
         self.assertEqual(json.loads(stdout.getvalue())["status"], "idle")
+
+    def test_adapter_registry_rejects_unknown_sources(self) -> None:
+        with self.assertRaises(UnknownSourceError):
+            default_adapter_registry().get("unknown_source")
+
+    def test_list_page_extractor_returns_listing_urls_and_card_metadata(self) -> None:
+        result = extract_listing_urls(
+            "demo_seed",
+            {"url": "https://demo.example/search/toulouse"},
+            html=LIST_PAGE_HTML,
+        )
+
+        self.assertEqual(result["source"], "demo_seed")
+        self.assertEqual(len(result["items"]), 2)
+        first = result["items"][0]
+        self.assertEqual(first["listing_url"], "https://demo.example/listings/seed-001")
+        self.assertEqual(first["source_listing_id"], "seed-001")
+        self.assertEqual(first["title"], "T2 Saint-Cyprien proche metro - 790 EUR - 39 m2")
+        self.assertEqual(first["price"], 790.0)
+        self.assertEqual(first["surface"], 39.0)
+        self.assertEqual(first["city"], "Toulouse")
+        self.assertEqual(first["district"], "Saint-Cyprien")
+
+    def test_worker_runs_list_page_jobs(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            job = BrowserJob.from_mapping(
+                {
+                    "job_id": "job_list",
+                    "source": "demo_seed",
+                    "mode": "list_page",
+                    "criteria": {"url": "https://demo.example/search/toulouse"},
+                }
+            )
+
+            result = run_browser_job(
+                job,
+                artifact_writer=ArtifactWriter(tmp_dir),
+                html=LIST_PAGE_HTML,
+            )
+
+            self.assertEqual(result.status, "succeeded")
+            self.assertEqual(len(result.candidate["items"]), 2)
+            self.assertTrue(Path(result.artifacts[0]).exists())
 
 
 if __name__ == "__main__":

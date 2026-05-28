@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from dossieragent_browser.artifacts import ArtifactWriter
-from dossieragent_browser.extractors import DirectUrlExtractor, StaticHtmlLoader
+from dossieragent_browser.adapters import default_adapter_registry
+from dossieragent_browser.extractors import DirectUrlExtractor, ListPageExtractor, StaticHtmlLoader
 from dossieragent_browser.guards import ComplianceGuard
 from dossieragent_browser.jobs import BrowserJob, BrowserJobError, BrowserJobResult
 
@@ -24,33 +25,52 @@ def run_browser_job(
     guard = compliance_guard or ComplianceGuard.from_env()
     loaded_html: str | None = None
     try:
-        if job.mode != "direct_url":
-            raise BrowserJobError(f"Unsupported implemented browser job mode: {job.mode}")
         guard.check_job(job)
         guard.before_request()
 
-        loader = StaticHtmlLoader(html) if html is not None else None
-        extractor = DirectUrlExtractor(loader=loader)
-        candidate, loaded_page = extractor.extract(
-            job.direct_url(),
-            source=job.source,
-            criteria=job.criteria,
-            timeout=job.timeout,
-        )
-        loaded_html = loaded_page.html
-        artifacts = writer.write_success(
-            job,
-            candidate.as_dict(),
-            html=loaded_page.html,
-            screenshot=loaded_page.screenshot,
-            trace=loaded_page.trace,
-        )
+        if job.mode == "direct_url":
+            loader = StaticHtmlLoader(html) if html is not None else None
+            extractor = DirectUrlExtractor(loader=loader)
+            candidate, loaded_page = extractor.extract(
+                job.direct_url(),
+                source=job.source,
+                criteria=job.criteria,
+                timeout=job.timeout,
+            )
+            loaded_html = loaded_page.html
+            candidate_payload = candidate.as_dict()
+            artifacts = writer.write_success(
+                job,
+                candidate_payload,
+                html=loaded_page.html,
+                screenshot=loaded_page.screenshot,
+                trace=loaded_page.trace,
+            )
+        elif job.mode == "list_page":
+            extractor = ListPageExtractor(
+                adapter_registry=default_adapter_registry(),
+                compliance_guard=guard,
+            )
+            candidates, loaded_html = extractor.extract(
+                source=job.source,
+                criteria=job.criteria,
+                timeout=job.timeout,
+                html=html,
+            )
+            candidate_payload = {
+                "source": job.source,
+                "items": [candidate.as_dict() for candidate in candidates],
+            }
+            artifacts = writer.write_success(job, candidate_payload, html=loaded_html)
+        else:
+            raise BrowserJobError(f"Unsupported implemented browser job mode: {job.mode}")
+
         return BrowserJobResult(
             job_id=job.job_id,
             status="succeeded",
             mode=job.mode,
             source=job.source,
-            candidate=candidate.as_dict(),
+            candidate=candidate_payload,
             artifacts=tuple(str(path) for path in artifacts),
         )
     except Exception as exc:
