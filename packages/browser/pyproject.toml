@@ -3,7 +3,9 @@ name = "dossieragent-browser"
 version = "0.1.0"
 description = "Playwright browser extraction package for DossierAgent."
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+  "playwright>=1.49,<2",
+]
 
 [build-system]
 requires = ["setuptools>=69"]
@@ -11,4 +13,3 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-
