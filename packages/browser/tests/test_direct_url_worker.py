@@ -1,0 +1,159 @@
+from __future__ import annotations
+
+import json
+import tempfile
+import unittest
+from contextlib import redirect_stdout
+from io import StringIO
+from pathlib import Path
+
+from dossieragent_browser.artifacts import ArtifactWriter
+from dossieragent_browser.extractors import ExtractionRejected, extract_listing_details
+from dossieragent_browser.jobs import BrowserJob, BrowserJobError
+from dossieragent_browser.worker import main, run_browser_job
+
+
+LISTING_HTML = """
+<!doctype html>
+<html>
+  <head>
+    <title>Fallback title</title>
+    <link rel="canonical" href="https://demo.example/listings/t2-saint-cyprien?utm=1" />
+    <meta name="description" content="T2 proche metro, disponible pour contact agence." />
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "Apartment",
+        "name": "T2 Saint-Cyprien proche metro",
+        "description": "Appartement lumineux avec balcon.",
+        "url": "https://demo.example/listings/t2-saint-cyprien",
+        "sku": "demo-123",
+        "numberOfRooms": 2,
+        "floorSize": {"@type": "QuantitativeValue", "value": 39, "unitCode": "MTK"},
+        "offers": {"@type": "Offer", "price": "790", "priceCurrency": "EUR"},
+        "address": {
+          "@type": "PostalAddress",
+          "addressLocality": "Toulouse",
+          "addressRegion": "Saint-Cyprien",
+          "postalCode": "31000"
+        },
+        "seller": {"@type": "RealEstateAgent", "name": "Agence Demo Toulouse"}
+      }
+    </script>
+  </head>
+  <body>
+    <main>
+      <h1>T2 Saint-Cyprien proche metro</h1>
+      <p>39 m2 - 2 pieces - contact agence.</p>
+    </main>
+  </body>
+</html>
+"""
+
+
+class BrowserDirectUrlTests(unittest.TestCase):
+    def test_browser_job_validates_direct_url_payload(self) -> None:
+        job = BrowserJob.from_mapping(
+            {
+                "job_id": "job_001",
+                "source": "manual_url",
+                "mode": "direct_url",
+                "criteria": {"url": "https://demo.example/listings/1"},
+                "timeout": 12,
+            }
+        )
+
+        self.assertEqual(job.job_id, "job_001")
+        self.assertEqual(job.source, "manual_url")
+        self.assertEqual(job.mode, "direct_url")
+        self.assertEqual(job.timeout, 12.0)
+        self.assertEqual(job.direct_url(), "https://demo.example/listings/1")
+
+        with self.assertRaises(BrowserJobError):
+            BrowserJob.from_mapping({"mode": "agent_browser", "criteria": {}})
+
+    def test_direct_url_extractor_returns_normalized_listing_candidate(self) -> None:
+        candidate = extract_listing_details(
+            "https://demo.example/listings/t2-saint-cyprien?tracking=1",
+            source="demo_seed",
+            html=LISTING_HTML,
+        )
+
+        self.assertEqual(candidate["source"], "demo_seed")
+        self.assertEqual(candidate["source_url"], "https://demo.example/listings/t2-saint-cyprien?tracking=1")
+        self.assertEqual(candidate["canonical_url"], "https://demo.example/listings/t2-saint-cyprien")
+        self.assertEqual(candidate["source_listing_id"], "demo-123")
+        self.assertEqual(candidate["title"], "T2 Saint-Cyprien proche metro")
+        self.assertEqual(candidate["city"], "Toulouse")
+        self.assertEqual(candidate["district"], "Saint-Cyprien")
+        self.assertEqual(candidate["postal_code"], "31000")
+        self.assertEqual(candidate["price"], 790.0)
+        self.assertEqual(candidate["surface"], 39.0)
+        self.assertEqual(candidate["rooms"], 2.0)
+        self.assertEqual(candidate["agency_name"], "Agence Demo Toulouse")
+        self.assertEqual(candidate["contact_hint"], "contact present on page")
+
+    def test_direct_url_extractor_rejects_login_or_captcha_pages(self) -> None:
+        with self.assertRaises(ExtractionRejected):
+            extract_listing_details(
+                "https://demo.example/listings/blocked",
+                source="demo_seed",
+                html="<html><body>Captcha required before viewing this listing.</body></html>",
+            )
+
+    def test_failed_job_writes_diagnostic_artifacts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            job = BrowserJob.from_mapping(
+                {
+                    "job_id": "job_failure",
+                    "source": "demo_seed",
+                    "mode": "direct_url",
+                    "criteria": {"url": "https://demo.example/listings/bad"},
+                    "timeout": 5,
+                }
+            )
+            result = run_browser_job(
+                job,
+                html="<html><body>Missing a usable title</body></html>",
+                artifact_writer=ArtifactWriter(tmp_dir),
+            )
+
+            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.error["type"], "ExtractionError")
+            self.assertTrue(Path(result.artifacts[0]).exists())
+
+            html_path = Path(tmp_dir) / "listing.html"
+            html_path.write_text("<html><body>Missing a usable title</body></html>", encoding="utf-8")
+            stdout = StringIO()
+            with redirect_stdout(stdout):
+                exit_code = main(
+                    [
+                        "--url",
+                        "https://demo.example/listings/bad",
+                        "--source",
+                        "demo_seed",
+                        "--html-file",
+                        str(html_path),
+                        "--artifact-dir",
+                        tmp_dir,
+                    ]
+                )
+
+            self.assertEqual(exit_code, 1)
+            cli_payload = json.loads(stdout.getvalue())
+            failure_path = Path(cli_payload["artifacts"][0])
+            self.assertTrue(failure_path.exists())
+            payload = json.loads(failure_path.read_text(encoding="utf-8"))
+            self.assertEqual(payload["error"]["type"], "ExtractionError")
+
+    def test_worker_idle_mode_is_root_launchable(self) -> None:
+        stdout = StringIO()
+        with redirect_stdout(stdout):
+            exit_code = main([])
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(json.loads(stdout.getvalue())["status"], "idle")
+
+
+if __name__ == "__main__":
+    unittest.main()
