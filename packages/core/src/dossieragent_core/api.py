@@ -14,7 +14,7 @@ from uuid import uuid4
 
 import uvicorn
 from dossieragent_database import build_repositories, create_connection, run_migrations
-from dossieragent_processing import extract_pdf_text
+from dossieragent_processing import analyze_dossier, extract_pdf_text
 from dossieragent_schedule import compute_next_run_at, find_due_watches
 from dossieragent_search_engine import build_listing_search_query
 from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
@@ -613,6 +613,41 @@ def install_routes(app: FastAPI) -> None:
         finally:
             connection.close()
 
+    @app.post("/api/v1/dossier/analyze", status_code=201, tags=["dossier"])
+    def analyze_dossier_readiness(
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            ensure_user_exists(repositories, user_id)
+            documents = repositories.dossier_documents.list_active_for_user(user_id, limit=500)
+            now = utc_now()
+            result = analyze_dossier(documents, now=now)
+            row = create_dossier_snapshot(repositories, user_id=user_id, result=result, now=now)
+            connection.commit()
+            return dossier_snapshot_response(row)
+        finally:
+            connection.close()
+
+    @app.get("/api/v1/dossier/readiness", tags=["dossier"])
+    def get_dossier_readiness(
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            row = repositories.dossier_snapshots.latest_for_user(user_id)
+            if row is None:
+                raise resource_not_found("dossier_readiness_not_found", "Analyse dossier introuvable.", "user_id", user_id)
+            return dossier_snapshot_response(row)
+        finally:
+            connection.close()
+
     @app.post("/api/v1/internal/cron/run-due-watches", tags=["internal"])
     def run_due_watches_from_cron(
         request: Request,
@@ -757,8 +792,9 @@ def build_dashboard_payload(dashboard_repository: Any, user_id: str) -> dict[str
             "readiness_score": dossier_snapshot["readiness_score"],
             "can_contact": bool(dossier_snapshot["can_contact"]),
             "can_send_full_dossier": bool(dossier_snapshot["can_send_full_dossier"]),
-            "missing_docs": json_field(dossier_snapshot["missing_documents_json"], []),
+            "missing_docs": missing_document_types(json_field(dossier_snapshot["missing_documents_json"], [])),
             "valid_docs": json_field(dossier_snapshot["valid_documents_json"], []),
+            "warnings": json_field(dossier_snapshot.get("warnings_json"), []),
             "recommendations": json_field(dossier_snapshot["recommendations_json"], []),
         },
         "pending_checks": dashboard_repository.count("user_checks", user_id, "status = 'pending'"),
@@ -922,6 +958,62 @@ def dossier_document_response(row: dict[str, Any]) -> dict[str, Any]:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
     }
+
+
+def create_dossier_snapshot(
+    repositories: Any,
+    *,
+    user_id: str,
+    result: Any,
+    now: str,
+) -> dict[str, Any]:
+    return repositories.dossier_snapshots.create(
+        {
+            "id": new_id("snap"),
+            "user_id": user_id,
+            "readiness_score": result.readiness_score,
+            "can_contact": int(result.can_contact),
+            "can_send_full_dossier": int(result.can_send_full_dossier),
+            "missing_documents_json": json_data([item.as_dict() for item in result.missing_documents]),
+            "valid_documents_json": json_data(list(result.valid_documents)),
+            "warnings_json": json_data(list(result.warnings)),
+            "recommendations_json": json_data(list(result.recommendations)),
+            "created_at": now,
+        }
+    )
+
+
+def dossier_snapshot_response(row: dict[str, Any]) -> dict[str, Any]:
+    missing_documents = json_field(row.get("missing_documents_json"), [])
+    valid_documents = json_field(row.get("valid_documents_json"), [])
+    warnings = json_field(row.get("warnings_json"), [])
+    recommendations = json_field(row.get("recommendations_json"), [])
+    missing_types = missing_document_types(missing_documents)
+    return {
+        "id": row["id"],
+        "snapshot_id": row["id"],
+        "readiness_score": row["readiness_score"],
+        "can_contact": bool(row["can_contact"]),
+        "can_send_full_dossier": bool(row["can_send_full_dossier"]),
+        "missing_documents": missing_documents,
+        "missing_docs": missing_types,
+        "valid_documents": valid_documents,
+        "valid_docs": valid_documents,
+        "warnings": warnings,
+        "recommendations": recommendations,
+        "created_at": row["created_at"],
+    }
+
+
+def missing_document_types(value: Any) -> list[str]:
+    documents = value if isinstance(value, list) else []
+    types: list[str] = []
+    for document in documents:
+        if isinstance(document, dict) and document.get("type") is not None:
+            types.append(str(document["type"]))
+        elif isinstance(document, str):
+            types.append(document)
+    return types
 
 
 def empty_run_summary() -> dict[str, int]:

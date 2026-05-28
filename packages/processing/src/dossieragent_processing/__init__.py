@@ -1,5 +1,6 @@
 from .public import (
     PACKAGE_MANIFEST,
+    analyze_dossier,
     deduplicate_listing,
     extract_pdf_text,
     get_manifest,
@@ -9,6 +10,7 @@ from .public import (
 
 __all__ = [
     "PACKAGE_MANIFEST",
+    "analyze_dossier",
     "deduplicate_listing",
     "extract_pdf_text",
     "get_manifest",
