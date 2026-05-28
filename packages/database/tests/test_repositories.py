@@ -203,6 +203,18 @@ class RepositoryTests(unittest.TestCase):
                 latest_snapshot = repos.dossier_snapshots.latest_for_user(user["id"])
                 found_packet = repos.contact_packets.find_for_user(user_id=user["id"], packet_id=packet["id"])
                 pending_checks = repos.user_checks.list_pending_for_user(user["id"])
+                completed_check = repos.user_checks.complete(
+                    check_id="chk_001",
+                    decision="approved",
+                    note="Looks good.",
+                    completed_at=now,
+                )
+                found_notification = repos.notifications.find_for_user(
+                    user_id=user["id"],
+                    notification_id="ntf_001",
+                )
+                unread_notifications = repos.notifications.list_for_user(user["id"], unread_only=True)
+                read_notification = repos.notifications.mark_read(notification_id="ntf_001", read_at=now)
 
                 self.assertEqual(repos.users.get("usr_001")["email"], "demo@example.com")
                 self.assertEqual(repos.search_criteria.list_by_user(user["id"])[0]["id"], "crit_001")
@@ -221,6 +233,10 @@ class RepositoryTests(unittest.TestCase):
                 self.assertEqual(latest_snapshot["id"], snapshot["id"])
                 self.assertEqual(found_packet["id"], packet["id"])
                 self.assertEqual(pending_checks[0]["id"], "chk_001")
+                self.assertEqual(completed_check["completed_with"], "approved")
+                self.assertEqual(found_notification["id"], "ntf_001")
+                self.assertEqual(unread_notifications[0]["id"], "ntf_001")
+                self.assertEqual(read_notification["read_at"], now)
             finally:
                 connection.close()
 

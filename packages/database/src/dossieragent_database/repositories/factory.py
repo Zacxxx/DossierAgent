@@ -9,6 +9,7 @@ from .dashboard import DashboardRepository
 from .dossier import DossierDocumentRepository, DossierSnapshotRepository
 from .idempotency import IdempotencyKeyRepository
 from .listings import ListingRepository
+from .notifications import NotificationRepository
 from .runs import AgentEventRepository, AgentRunRepository
 from .user_checks import UserCheckRepository
 
@@ -24,7 +25,7 @@ class DatabaseRepositories:
     dossier_snapshots: DossierSnapshotRepository
     contact_packets: ContactPacketRepository
     user_checks: UserCheckRepository
-    notifications: SQLiteTableRepository
+    notifications: NotificationRepository
     agent_runs: AgentRunRepository
     agent_events: AgentEventRepository
     idempotency_keys: IdempotencyKeyRepository
@@ -42,7 +43,7 @@ def build_repositories(connection: sqlite3.Connection) -> DatabaseRepositories:
         dossier_snapshots=DossierSnapshotRepository(connection),
         contact_packets=ContactPacketRepository(connection),
         user_checks=UserCheckRepository(connection),
-        notifications=SQLiteTableRepository(connection, "notifications"),
+        notifications=NotificationRepository(connection),
         agent_runs=AgentRunRepository(connection),
         agent_events=AgentEventRepository(connection),
         idempotency_keys=IdempotencyKeyRepository(connection),

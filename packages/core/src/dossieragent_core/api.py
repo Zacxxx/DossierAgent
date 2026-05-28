@@ -89,6 +89,11 @@ class ContactPacketCreateRequest(BaseModel):
     include_dossier_summary: bool = True
 
 
+class UserCheckCompleteRequest(BaseModel):
+    decision: str
+    note: str | None = None
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="DossierAgent API",
@@ -731,6 +736,108 @@ def install_routes(app: FastAPI) -> None:
         finally:
             connection.close()
 
+    @app.get("/api/v1/user-checks", tags=["user-checks"])
+    def list_user_checks(
+        limit: int = Query(default=100, ge=1, le=200),
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            rows = repositories.user_checks.list_pending_for_user(user_id, limit=limit)
+            return {"items": [user_check_response(row) for row in rows]}
+        finally:
+            connection.close()
+
+    @app.post("/api/v1/user-checks/{check_id}/complete", tags=["user-checks"])
+    def complete_user_check(
+        check_id: str,
+        request: UserCheckCompleteRequest,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        if request.decision not in {"approved", "rejected"}:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "invalid_check_decision",
+                    "message": "Decision de validation invalide.",
+                    "details": {"decision": request.decision, "allowed": ["approved", "rejected"]},
+                    "retryable": False,
+                },
+            )
+
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            row = repositories.user_checks.find_for_user(user_id=user_id, check_id=check_id)
+            if row is None:
+                raise resource_not_found("user_check_not_found", "Validation introuvable.", "check_id", check_id)
+            if row["status"] != "pending":
+                raise HTTPException(
+                    status_code=409,
+                    detail={
+                        "code": "user_check_already_completed",
+                        "message": "Validation deja completee.",
+                        "details": {"check_id": check_id, "status": row["status"]},
+                        "retryable": False,
+                    },
+                )
+
+            completed = repositories.user_checks.complete(
+                check_id=check_id,
+                decision=request.decision,
+                note=clean_form_value(request.note),
+                completed_at=utc_now(),
+            )
+            connection.commit()
+            return user_check_response(completed)
+        finally:
+            connection.close()
+
+    @app.get("/api/v1/notifications", tags=["notifications"])
+    def list_notifications(
+        unread_only: bool = False,
+        limit: int = Query(default=100, ge=1, le=200),
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            rows = repositories.notifications.list_for_user(user_id, unread_only=unread_only, limit=limit)
+            return {"items": [notification_response(row) for row in rows]}
+        finally:
+            connection.close()
+
+    @app.post("/api/v1/notifications/{notification_id}/read", tags=["notifications"])
+    def mark_notification_read(
+        notification_id: str,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            row = repositories.notifications.find_for_user(user_id=user_id, notification_id=notification_id)
+            if row is None:
+                raise resource_not_found(
+                    "notification_not_found",
+                    "Notification introuvable.",
+                    "notification_id",
+                    notification_id,
+                )
+            updated = repositories.notifications.mark_read(notification_id=notification_id, read_at=utc_now())
+            connection.commit()
+            return notification_response(updated)
+        finally:
+            connection.close()
+
     @app.post("/api/v1/internal/cron/run-due-watches", tags=["internal"])
     def run_due_watches_from_cron(
         request: Request,
@@ -1133,6 +1240,36 @@ def contact_packet_response(row: dict[str, Any], *, user_check_id: str | None = 
     if user_check_id is not None:
         payload["user_check_id"] = user_check_id
     return payload
+
+
+def user_check_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "type": row["type"],
+        "resource_type": row["resource_type"],
+        "resource_id": row["resource_id"],
+        "title": row["title"],
+        "summary": row["summary"],
+        "status": row["status"],
+        "payload": json_field(row.get("payload_json"), {}),
+        "completed_with": row.get("completed_with"),
+        "completed_note": row.get("completed_note"),
+        "created_at": row["created_at"],
+        "completed_at": row.get("completed_at"),
+    }
+
+
+def notification_response(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "type": row["type"],
+        "title": row["title"],
+        "body": row["body"],
+        "resource_type": row.get("resource_type"),
+        "resource_id": row.get("resource_id"),
+        "read_at": row.get("read_at"),
+        "created_at": row["created_at"],
+    }
 
 
 def empty_run_summary() -> dict[str, int]:
