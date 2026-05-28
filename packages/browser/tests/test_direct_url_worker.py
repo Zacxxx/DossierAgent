@@ -9,6 +9,7 @@ from pathlib import Path
 
 from dossieragent_browser.artifacts import ArtifactWriter
 from dossieragent_browser.extractors import ExtractionRejected, extract_listing_details
+from dossieragent_browser.guards import ComplianceGuard
 from dossieragent_browser.jobs import BrowserJob, BrowserJobError
 from dossieragent_browser.worker import main, run_browser_job
 
@@ -101,7 +102,20 @@ class BrowserDirectUrlTests(unittest.TestCase):
                 html="<html><body>Captcha required before viewing this listing.</body></html>",
             )
 
-    def test_failed_job_writes_diagnostic_artifacts(self) -> None:
+    def test_compliance_guard_rejects_non_allowlisted_sources(self) -> None:
+        job = BrowserJob.from_mapping(
+            {
+                "job_id": "job_blocked",
+                "source": "unknown_source",
+                "mode": "direct_url",
+                "criteria": {"url": "https://demo.example/listings/blocked"},
+            }
+        )
+
+        with self.assertRaisesRegex(Exception, "not allowlisted"):
+            ComplianceGuard().check_job(job)
+
+    def test_degraded_job_writes_diagnostic_artifacts(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:
             job = BrowserJob.from_mapping(
                 {
@@ -118,7 +132,7 @@ class BrowserDirectUrlTests(unittest.TestCase):
                 artifact_writer=ArtifactWriter(tmp_dir),
             )
 
-            self.assertEqual(result.status, "failed")
+            self.assertEqual(result.status, "degraded")
             self.assertEqual(result.error["type"], "ExtractionError")
             self.assertTrue(Path(result.artifacts[0]).exists())
 
@@ -139,12 +153,36 @@ class BrowserDirectUrlTests(unittest.TestCase):
                     ]
                 )
 
-            self.assertEqual(exit_code, 1)
+            self.assertEqual(exit_code, 0)
             cli_payload = json.loads(stdout.getvalue())
+            self.assertEqual(cli_payload["status"], "degraded")
             failure_path = Path(cli_payload["artifacts"][0])
             self.assertTrue(failure_path.exists())
             payload = json.loads(failure_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["error"]["type"], "ExtractionError")
+
+    def test_artifact_writer_stores_json_html_screenshot_and_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            job = BrowserJob.from_mapping(
+                {
+                    "job_id": "job_artifacts",
+                    "source": "demo_seed",
+                    "mode": "direct_url",
+                    "criteria": {"url": "https://demo.example/listings/ok"},
+                }
+            )
+            paths = ArtifactWriter(tmp_dir).write_success(
+                job,
+                {"title": "T2"},
+                html="<html></html>",
+                screenshot=b"png-bytes",
+                trace=b"zip-bytes",
+            )
+
+            self.assertEqual(
+                {path.name for path in paths},
+                {"listing.json", "page.html", "screenshot.png", "trace.zip"},
+            )
 
     def test_worker_idle_mode_is_root_launchable(self) -> None:
         stdout = StringIO()

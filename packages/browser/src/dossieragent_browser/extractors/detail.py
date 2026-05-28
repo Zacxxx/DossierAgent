@@ -2,12 +2,16 @@ from __future__ import annotations
 
 import json
 import re
+import tempfile
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from html import unescape
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Any, Protocol
 from urllib.parse import urljoin, urlsplit, urlunsplit
+
+from dossieragent_browser.guards import ComplianceGuard, ComplianceViolation
 
 
 class ExtractionError(RuntimeError):
@@ -23,6 +27,7 @@ class LoadedPage:
     url: str
     html: str
     screenshot: bytes | None = None
+    trace: bytes | None = None
 
 
 class HtmlLoader(Protocol):
@@ -98,15 +103,23 @@ class PlaywrightHtmlLoader:
         timeout_ms = int(timeout * 1000)
         with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
-            page = browser.new_page()
-            screenshot: bytes | None = None
+            context = browser.new_context()
+            context.tracing.start(screenshots=True, snapshots=True, sources=True)
+            page = context.new_page()
+            trace_path: Path | None = None
             try:
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 5_000))
                 html = page.content()
                 screenshot = page.screenshot(full_page=True)
-                return LoadedPage(url=page.url, html=html, screenshot=screenshot)
+                with tempfile.NamedTemporaryFile(suffix=".zip", delete=False) as trace_file:
+                    trace_path = Path(trace_file.name)
+                context.tracing.stop(path=str(trace_path))
+                trace = trace_path.read_bytes()
+                return LoadedPage(url=page.url, html=html, screenshot=screenshot, trace=trace)
             finally:
+                if trace_path is not None:
+                    trace_path.unlink(missing_ok=True)
                 browser.close()
 
 
@@ -288,17 +301,10 @@ def candidate_from_html(
 
 
 def reject_blocked_flow(text: str) -> None:
-    normalized = text.lower()
-    blocked_markers = (
-        "captcha",
-        "recaptcha",
-        "connectez-vous",
-        "connexion requise",
-        "login required",
-        "sign in to continue",
-    )
-    if any(marker in normalized for marker in blocked_markers):
-        raise ExtractionRejected("Page requires login or captcha; bypass is outside MVP scope.")
+    try:
+        ComplianceGuard().check_page_text(text)
+    except ComplianceViolation as exc:
+        raise ExtractionRejected(str(exc)) from exc
 
 
 def parse_json_ld(blocks: list[str]) -> tuple[Mapping[str, Any], ...]:

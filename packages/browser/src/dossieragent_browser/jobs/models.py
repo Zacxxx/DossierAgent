@@ -70,7 +70,7 @@ class BrowserJob:
 @dataclass(frozen=True, slots=True)
 class BrowserJobResult:
     job_id: str
-    status: Literal["succeeded", "failed", "idle"]
+    status: Literal["succeeded", "degraded", "failed", "idle"]
     mode: str
     source: str
     candidate: Mapping[str, Any] | None = None

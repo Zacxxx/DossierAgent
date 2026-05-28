@@ -9,6 +9,7 @@ from typing import Any
 
 from dossieragent_browser.artifacts import ArtifactWriter
 from dossieragent_browser.extractors import DirectUrlExtractor, StaticHtmlLoader
+from dossieragent_browser.guards import ComplianceGuard
 from dossieragent_browser.jobs import BrowserJob, BrowserJobError, BrowserJobResult
 
 
@@ -16,13 +17,17 @@ def run_browser_job(
     job: BrowserJob,
     *,
     artifact_writer: ArtifactWriter | None = None,
+    compliance_guard: ComplianceGuard | None = None,
     html: str | None = None,
 ) -> BrowserJobResult:
     writer = artifact_writer or ArtifactWriter()
+    guard = compliance_guard or ComplianceGuard.from_env()
     loaded_html: str | None = None
     try:
         if job.mode != "direct_url":
             raise BrowserJobError(f"Unsupported implemented browser job mode: {job.mode}")
+        guard.check_job(job)
+        guard.before_request()
 
         loader = StaticHtmlLoader(html) if html is not None else None
         extractor = DirectUrlExtractor(loader=loader)
@@ -33,12 +38,13 @@ def run_browser_job(
             timeout=job.timeout,
         )
         loaded_html = loaded_page.html
-        artifacts = writer.write_success(job, candidate.as_dict(), html=loaded_page.html)
-        if loaded_page.screenshot:
-            artifacts = (
-                *artifacts,
-                writer.write_bytes(job, "screenshot.png", loaded_page.screenshot),
-            )
+        artifacts = writer.write_success(
+            job,
+            candidate.as_dict(),
+            html=loaded_page.html,
+            screenshot=loaded_page.screenshot,
+            trace=loaded_page.trace,
+        )
         return BrowserJobResult(
             job_id=job.job_id,
             status="succeeded",
@@ -51,7 +57,7 @@ def run_browser_job(
         artifacts = writer.write_failure(job, exc, html=loaded_html or html)
         return BrowserJobResult(
             job_id=job.job_id,
-            status="failed",
+            status="degraded",
             mode=job.mode,
             source=job.source,
             error={"type": type(exc).__name__, "message": str(exc)},
@@ -84,7 +90,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     writer = ArtifactWriter(args.artifact_dir)
     result = run_browser_job(job, artifact_writer=writer, html=html)
     print(json.dumps(result.as_dict(), sort_keys=True))
-    return 0 if result.status == "succeeded" else 1
+    return 0 if result.status in {"succeeded", "degraded"} else 1
 
 
 def build_parser() -> argparse.ArgumentParser:
