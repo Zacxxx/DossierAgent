@@ -128,6 +128,25 @@ class RepositoryTests(unittest.TestCase):
                         "created_at": now,
                     }
                 )
+                document = repos.dossier_documents.create(
+                    {
+                        "id": "doc_001",
+                        "user_id": user["id"],
+                        "filename": "payslip.pdf",
+                        "storage_path": "storage/documents/usr_001/doc_001/payslip.pdf",
+                        "mime_type": "application/pdf",
+                        "file_size": 2048,
+                        "sha256": "sha256-doc-001",
+                        "declared_type": "payslip",
+                        "detected_type": "payslip",
+                        "detected_owner_type": "user",
+                        "page_count": 1,
+                        "status": "uploaded",
+                        "extracted_text_path": "storage/extracted_text/usr_001/doc_001.txt",
+                        "created_at": now,
+                        "updated_at": now,
+                    }
+                )
 
                 updated_listing = repos.listings.update(listing["id"], {"status": "saved"})
                 listing_search_rows, listing_search_total = repos.listings.search(
@@ -147,6 +166,11 @@ class RepositoryTests(unittest.TestCase):
                     scope="run_now",
                     idempotency_key="test-key",
                 )
+                found_document = repos.dossier_documents.find_for_user(
+                    user_id=user["id"],
+                    document_id=document["id"],
+                )
+                active_documents = repos.dossier_documents.list_active_for_user(user["id"])
 
                 self.assertEqual(repos.users.get("usr_001")["email"], "demo@example.com")
                 self.assertEqual(repos.search_criteria.list_by_user(user["id"])[0]["id"], "crit_001")
@@ -160,6 +184,8 @@ class RepositoryTests(unittest.TestCase):
                 self.assertEqual(counts["pending_checks"], 1)
                 self.assertEqual(counts["unread_notifications"], 1)
                 self.assertEqual(idempotency_key["resource_id"], run["id"])
+                self.assertEqual(found_document["detected_type"], "payslip")
+                self.assertEqual(active_documents[0]["id"], "doc_001")
             finally:
                 connection.close()
 

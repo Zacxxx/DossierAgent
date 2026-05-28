@@ -1,19 +1,23 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import mimetypes
 import os
 import urllib.error
 import urllib.request
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
 import uvicorn
 from dossieragent_database import build_repositories, create_connection, run_migrations
+from dossieragent_processing import extract_pdf_text
 from dossieragent_schedule import compute_next_run_at, find_due_watches
 from dossieragent_search_engine import build_listing_search_query
-from fastapi import FastAPI, Header, HTTPException, Query, Request
+from fastapi import FastAPI, File, Form, Header, HTTPException, Query, Request, UploadFile
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -499,6 +503,116 @@ def install_routes(app: FastAPI) -> None:
         finally:
             connection.close()
 
+    @app.post("/api/v1/dossier/documents", status_code=201, tags=["dossier"])
+    async def upload_dossier_document(
+        file: UploadFile = File(...),
+        declared_type: str | None = Form(default=None),
+        owner_type: str | None = Form(default="user"),
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        original_filename = file.filename or "document.pdf"
+        safe_name = safe_filename(original_filename)
+        content = await file.read()
+        if not content:
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "code": "empty_upload",
+                    "message": "Le fichier envoye est vide.",
+                    "details": {"filename": original_filename},
+                    "retryable": False,
+                },
+            )
+
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            ensure_user_exists(repositories, user_id)
+
+            document_id = new_id("doc")
+            now = utc_now()
+            storage_root = resolve_storage_path()
+            document_dir = storage_root / "documents" / user_id / document_id
+            extracted_dir = storage_root / "extracted_text" / user_id
+            document_dir.mkdir(parents=True, exist_ok=True)
+            extracted_dir.mkdir(parents=True, exist_ok=True)
+            stored_path = document_dir / safe_name
+            stored_path.write_bytes(content)
+
+            extraction = extract_pdf_text(stored_path, declared_type=declared_type)
+            extracted_text_path: Path | None = None
+            if extraction.text:
+                extracted_text_path = extracted_dir / f"{document_id}.txt"
+                extracted_text_path.write_text(extraction.text, encoding="utf-8")
+
+            issues = list(extraction.issues)
+            warnings = list(extraction.warnings)
+            if not is_pdf_upload(safe_name, file.content_type):
+                issues.append("mime_type_not_pdf")
+
+            status = "needs_review" if issues else "uploaded"
+            mime_type = file.content_type or mimetypes.guess_type(safe_name)[0] or "application/octet-stream"
+            row_data = {
+                "id": document_id,
+                "user_id": user_id,
+                "filename": safe_name,
+                "storage_path": str(stored_path),
+                "mime_type": mime_type,
+                "file_size": len(content),
+                "sha256": hashlib.sha256(content).hexdigest(),
+                "declared_type": clean_form_value(declared_type),
+                "detected_type": extraction.detected_type,
+                "detected_owner_type": clean_form_value(owner_type) or "user",
+                "page_count": extraction.page_count,
+                "status": status,
+                "extracted_text_path": str(extracted_text_path) if extracted_text_path else None,
+                "issues_json": json_data(list(dict.fromkeys(issues))),
+                "warnings_json": json_data(list(dict.fromkeys(warnings))),
+                "created_at": now,
+                "updated_at": now,
+            }
+            row = repositories.dossier_documents.create(row_data)
+            connection.commit()
+            return dossier_document_response(row)
+        finally:
+            connection.close()
+
+    @app.get("/api/v1/dossier/documents", tags=["dossier"])
+    def list_dossier_documents(
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            rows = repositories.dossier_documents.list_active_for_user(user_id)
+            return {"items": [dossier_document_response(row) for row in rows]}
+        finally:
+            connection.close()
+
+    @app.get("/api/v1/dossier/documents/{document_id}", tags=["dossier"])
+    def get_dossier_document(
+        document_id: str,
+        x_demo_user_id: str | None = Header(default=None, alias="X-Demo-User-Id"),
+    ) -> dict[str, Any]:
+        user_id = request_user_id(x_demo_user_id)
+        connection = create_connection()
+        try:
+            run_migrations(connection)
+            repositories = build_repositories(connection)
+            row = repositories.dossier_documents.find_for_user(
+                user_id=user_id,
+                document_id=document_id,
+            )
+            if row is None:
+                raise resource_not_found("document_not_found", "Document introuvable.", "document_id", document_id)
+            return dossier_document_response(row)
+        finally:
+            connection.close()
+
     @app.post("/api/v1/internal/cron/run-due-watches", tags=["internal"])
     def run_due_watches_from_cron(
         request: Request,
@@ -787,6 +901,29 @@ def listing_detail_response(row: dict[str, Any]) -> dict[str, Any]:
     return payload
 
 
+def dossier_document_response(row: dict[str, Any]) -> dict[str, Any]:
+    has_extracted_text = bool(row.get("extracted_text_path"))
+    return {
+        "id": row["id"],
+        "document_id": row["id"],
+        "status": row["status"],
+        "filename": row["filename"],
+        "mime_type": row["mime_type"],
+        "file_size": row["file_size"],
+        "sha256": row["sha256"],
+        "declared_type": row.get("declared_type"),
+        "detected_type": row.get("detected_type"),
+        "detected_owner_type": row.get("detected_owner_type"),
+        "page_count": row.get("page_count"),
+        "has_extracted_text": has_extracted_text,
+        "analysis_status": "queued" if row["status"] == "uploaded" else row["status"],
+        "issues": json_field(row.get("issues_json"), []),
+        "warnings": json_field(row.get("warnings_json"), []),
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+
+
 def empty_run_summary() -> dict[str, int]:
     return {
         "scanned_candidates": 0,
@@ -889,6 +1026,30 @@ def normalize_optional_header(value: str | None) -> str | None:
         return None
     stripped_value = value.strip()
     return stripped_value or None
+
+
+def resolve_storage_path() -> Path:
+    return Path(os.environ.get("DOSSIERAGENT_STORAGE_PATH", "storage"))
+
+
+def clean_form_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def safe_filename(filename: str) -> str:
+    name = Path(filename).name.strip().replace("\x00", "")
+    if not name:
+        return "document.pdf"
+    safe = "".join(character if character.isalnum() or character in "._- " else "_" for character in name)
+    return safe.strip(" .") or "document.pdf"
+
+
+def is_pdf_upload(filename: str, content_type: str | None) -> bool:
+    clean_content_type = (content_type or "").split(";")[0].strip().lower()
+    return clean_content_type == "application/pdf" or filename.lower().endswith(".pdf")
 
 
 def clean_listing_filters(filters: dict[str, Any]) -> dict[str, Any]:

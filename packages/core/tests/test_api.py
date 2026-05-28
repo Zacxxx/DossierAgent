@@ -279,6 +279,116 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(invalid_patch.status_code, 400)
         self.assertEqual(invalid_patch.json()["error"]["code"], "invalid_listing_status")
 
+    def test_dossier_document_upload_extracts_pdf_and_stores_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            storage_path = tmp_path / "storage"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=storage_path)
+            finally:
+                connection.close()
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "DOSSIERAGENT_SQLITE_PATH": str(database_path),
+                    "DOSSIERAGENT_STORAGE_PATH": str(storage_path),
+                },
+            ):
+                upload_response = self.client.post(
+                    "/api/v1/dossier/documents",
+                    files={
+                        "file": (
+                            "payslip_may.pdf",
+                            build_pdf_bytes(
+                                "Bulletin de paie mai 2026\n"
+                                "Employeur DossierAgent SAS\n"
+                                "Salaire net a payer 2450 EUR"
+                            ),
+                            "application/pdf",
+                        )
+                    },
+                    data={"declared_type": "payslip", "owner_type": "user"},
+                )
+                document_id = upload_response.json()["document_id"]
+                detail_response = self.client.get(f"/api/v1/dossier/documents/{document_id}")
+                list_response = self.client.get("/api/v1/dossier/documents")
+
+            connection = create_connection(database_path)
+            try:
+                row = connection.execute(
+                    "SELECT * FROM dossier_documents WHERE id = ?",
+                    (document_id,),
+                ).fetchone()
+                extracted_text_path = Path(row["extracted_text_path"])
+                extracted_text_exists = extracted_text_path.exists()
+                extracted_text = extracted_text_path.read_text(encoding="utf-8")
+            finally:
+                connection.close()
+
+        self.assertEqual(upload_response.status_code, 201)
+        payload = upload_response.json()
+        self.assertEqual(payload["status"], "uploaded")
+        self.assertEqual(payload["analysis_status"], "queued")
+        self.assertEqual(payload["filename"], "payslip_may.pdf")
+        self.assertEqual(payload["detected_type"], "payslip")
+        self.assertEqual(payload["page_count"], 1)
+        self.assertTrue(payload["has_extracted_text"])
+        self.assertNotIn("storage_path", payload)
+        self.assertNotIn("extracted_text_path", payload)
+
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertEqual(detail_response.json()["document_id"], document_id)
+        self.assertEqual(list_response.status_code, 200)
+        self.assertIn(document_id, {item["document_id"] for item in list_response.json()["items"]})
+        self.assertIsNotNone(row["extracted_text_path"])
+        self.assertTrue(extracted_text_exists)
+        self.assertIn("Bulletin de paie", extracted_text)
+
+    def test_bad_dossier_upload_is_marked_needs_review(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            storage_path = tmp_path / "storage"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=storage_path)
+            finally:
+                connection.close()
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "DOSSIERAGENT_SQLITE_PATH": str(database_path),
+                    "DOSSIERAGENT_STORAGE_PATH": str(storage_path),
+                },
+            ):
+                response = self.client.post(
+                    "/api/v1/dossier/documents",
+                    files={"file": ("broken.pdf", b"not a pdf", "application/pdf")},
+                    data={"declared_type": "payslip", "owner_type": "user"},
+                )
+
+        self.assertEqual(response.status_code, 201)
+        payload = response.json()
+        self.assertEqual(payload["status"], "needs_review")
+        self.assertFalse(payload["has_extracted_text"])
+        self.assertTrue(payload["issues"][0].startswith("pdf_open_failed"))
+
+
+def build_pdf_bytes(text: str) -> bytes:
+    import fitz
+
+    document = fitz.open()
+    page = document.new_page()
+    page.insert_text((72, 72), text, fontsize=11)
+    try:
+        return document.tobytes()
+    finally:
+        document.close()
+
 
 if __name__ == "__main__":
     unittest.main()
