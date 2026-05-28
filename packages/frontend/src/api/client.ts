@@ -83,6 +83,51 @@ const listingListSchema = z.object({
   filters: z.record(z.unknown()),
 });
 
+const missingDocumentSchema = z.object({
+  type: z.string(),
+  severity: z.string(),
+  reason: z.string(),
+});
+
+const dossierReadinessSchema = z.object({
+  id: z.string(),
+  snapshot_id: z.string(),
+  readiness_score: z.number(),
+  can_contact: z.boolean(),
+  can_send_full_dossier: z.boolean(),
+  missing_documents: z.array(z.union([missingDocumentSchema, z.string()])),
+  missing_docs: z.array(z.string()),
+  valid_documents: z.array(z.string()),
+  valid_docs: z.array(z.string()),
+  warnings: z.array(z.string()),
+  recommendations: z.array(z.string()),
+  created_at: z.string(),
+});
+
+const dossierDocumentSchema = z.object({
+  id: z.string(),
+  document_id: z.string(),
+  status: z.string(),
+  filename: z.string(),
+  mime_type: z.string(),
+  file_size: z.number(),
+  sha256: z.string(),
+  declared_type: z.string().nullable(),
+  detected_type: z.string().nullable(),
+  detected_owner_type: z.string().nullable(),
+  page_count: z.number().nullable(),
+  has_extracted_text: z.boolean(),
+  analysis_status: z.string(),
+  issues: z.array(z.string()),
+  warnings: z.array(z.string()),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+const dossierDocumentListSchema = z.object({
+  items: z.array(dossierDocumentSchema),
+});
+
 export const dashboardSchema = z.object({
   current_watch: z.object({
     id: z.string(),
@@ -116,6 +161,9 @@ export type ListingStatus = z.infer<typeof listingStatusSchema>;
 export type ListingSummary = z.infer<typeof listingSummarySchema>;
 export type ListingDetail = z.infer<typeof listingDetailSchema>;
 export type ListingList = z.infer<typeof listingListSchema>;
+export type DossierReadiness = z.infer<typeof dossierReadinessSchema>;
+export type DossierDocument = z.infer<typeof dossierDocumentSchema>;
+export type MissingDocument = z.infer<typeof missingDocumentSchema>;
 
 export type ListingFilters = {
   q?: string;
@@ -174,6 +222,39 @@ export async function patchListingStatus(
   });
 }
 
+export async function getDossierReadiness(): Promise<DossierReadiness> {
+  return fetchJson("/dossier/readiness", dossierReadinessSchema);
+}
+
+export async function analyzeDossier(): Promise<DossierReadiness> {
+  return fetchJson("/dossier/analyze", dossierReadinessSchema, {
+    method: "POST",
+  });
+}
+
+export async function getDossierDocuments(): Promise<{ items: DossierDocument[] }> {
+  return fetchJson("/dossier/documents", dossierDocumentListSchema);
+}
+
+export async function uploadDossierDocument({
+  file,
+  declaredType,
+  ownerType,
+}: {
+  file: File;
+  declaredType: string;
+  ownerType: string;
+}): Promise<DossierDocument> {
+  const formData = new FormData();
+  formData.set("file", file);
+  formData.set("declared_type", declaredType);
+  formData.set("owner_type", ownerType);
+  return fetchJson("/dossier/documents", dossierDocumentSchema, {
+    method: "POST",
+    body: formData,
+  });
+}
+
 async function fetchJson<T>(
   path: string,
   schema: z.ZodType<T>,
@@ -181,7 +262,7 @@ async function fetchJson<T>(
 ): Promise<T> {
   const headers = new Headers(init.headers);
   headers.set("Accept", "application/json");
-  if (init.body !== undefined && !headers.has("Content-Type")) {
+  if (init.body !== undefined && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
 
