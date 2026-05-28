@@ -28,6 +28,61 @@ const dashboardListingSchema = z.object({
   explanation: z.array(z.string()),
 });
 
+export const listingStatusValues = [
+  "new",
+  "saved",
+  "recommended",
+  "rejected",
+  "duplicate",
+  "repost",
+  "trash",
+  "archived",
+] as const;
+
+const listingStatusSchema = z.enum(listingStatusValues);
+
+const listingSummarySchema = z.object({
+  id: z.string(),
+  watch_id: z.string().nullable(),
+  title: z.string(),
+  city: z.string().nullable(),
+  district: z.string().nullable(),
+  price: z.number().nullable(),
+  currency: z.string(),
+  surface: z.number().nullable(),
+  rooms: z.number().nullable(),
+  status: listingStatusSchema,
+  fit_score: z.number().nullable(),
+  fit_level: z.string().nullable(),
+  risk_flags: z.array(z.string()),
+  explanation: z.array(z.string()),
+  first_seen_at: z.string().nullable(),
+  last_seen_at: z.string().nullable(),
+});
+
+const listingDetailSchema = listingSummarySchema.extend({
+  source: z.string(),
+  source_url: z.string(),
+  canonical_url: z.string(),
+  source_listing_id: z.string().nullable(),
+  description: z.string().nullable(),
+  postal_code: z.string().nullable(),
+  agency_name: z.string().nullable(),
+  contact_hint: z.string().nullable(),
+  duplicate_of_listing_id: z.string().nullable(),
+  raw_payload: z.record(z.unknown()),
+  created_at: z.string().nullable(),
+  updated_at: z.string().nullable(),
+});
+
+const listingListSchema = z.object({
+  items: z.array(listingSummarySchema),
+  next_cursor: z.string().nullable(),
+  total: z.number(),
+  source: z.string(),
+  filters: z.record(z.unknown()),
+});
+
 export const dashboardSchema = z.object({
   current_watch: z.object({
     id: z.string(),
@@ -57,6 +112,24 @@ export const dashboardSchema = z.object({
 
 export type Dashboard = z.infer<typeof dashboardSchema>;
 export type DashboardListing = z.infer<typeof dashboardListingSchema>;
+export type ListingStatus = z.infer<typeof listingStatusSchema>;
+export type ListingSummary = z.infer<typeof listingSummarySchema>;
+export type ListingDetail = z.infer<typeof listingDetailSchema>;
+export type ListingList = z.infer<typeof listingListSchema>;
+
+export type ListingFilters = {
+  q?: string;
+  status?: ListingStatus;
+  city?: string;
+  district?: string;
+  watch_id?: string;
+  max_price?: number;
+  min_price?: number;
+  min_surface?: number;
+  min_score?: number;
+  limit?: number;
+  cursor?: string;
+};
 
 export class ApiError extends Error {
   code: string;
@@ -76,11 +149,45 @@ export async function getDashboard(): Promise<Dashboard> {
   return fetchJson("/dashboard", dashboardSchema);
 }
 
-async function fetchJson<T>(path: string, schema: z.ZodType<T>): Promise<T> {
+export async function getListings(filters: ListingFilters = {}): Promise<ListingList> {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined && value !== "") {
+      params.set(key, String(value));
+    }
+  }
+  const queryString = params.toString();
+  return fetchJson(`/listings${queryString ? `?${queryString}` : ""}`, listingListSchema);
+}
+
+export async function getListing(listingId: string): Promise<ListingDetail> {
+  return fetchJson(`/listings/${encodeURIComponent(listingId)}`, listingDetailSchema);
+}
+
+export async function patchListingStatus(
+  listingId: string,
+  status: ListingStatus,
+): Promise<ListingDetail> {
+  return fetchJson(`/listings/${encodeURIComponent(listingId)}`, listingDetailSchema, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+async function fetchJson<T>(
+  path: string,
+  schema: z.ZodType<T>,
+  init: RequestInit = {},
+): Promise<T> {
+  const headers = new Headers(init.headers);
+  headers.set("Accept", "application/json");
+  if (init.body !== undefined && !headers.has("Content-Type")) {
+    headers.set("Content-Type", "application/json");
+  }
+
   const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: {
-      Accept: "application/json",
-    },
+    ...init,
+    headers,
   });
   const payload: unknown = await response.json();
 
