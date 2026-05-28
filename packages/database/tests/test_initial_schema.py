@@ -46,6 +46,7 @@ EXPECTED_JSON_COLUMNS = {
     "dossier_snapshots": {
         "missing_documents_json",
         "valid_documents_json",
+        "warnings_json",
         "recommendations_json",
     },
     "contact_packets": {"questions_json", "dossier_summary_json"},
@@ -62,7 +63,7 @@ class InitialSchemaTests(unittest.TestCase):
             try:
                 applied = run_migrations(connection)
 
-                self.assertEqual([migration.version for migration in applied], ["0001", "0002"])
+                self.assertEqual([migration.version for migration in applied], ["0001", "0002", "0003"])
                 self.assertLessEqual(EXPECTED_TABLES, self.table_names(connection))
                 self.assertLessEqual(EXPECTED_INDEXES, self.index_names(connection))
 
@@ -78,7 +79,7 @@ class InitialSchemaTests(unittest.TestCase):
                 first_run = run_migrations(connection)
                 second_run = run_migrations(connection)
 
-                self.assertEqual(len(first_run), 2)
+                self.assertEqual(len(first_run), 3)
                 self.assertEqual(len(second_run), 0)
             finally:
                 connection.close()

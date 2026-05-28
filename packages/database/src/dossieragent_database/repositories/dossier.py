@@ -32,3 +32,20 @@ class DossierDocumentRepository(SQLiteTableRepository):
             (user_id, limit),
         ).fetchall()
         return tuple(row_to_dict(row) for row in rows)
+
+
+class DossierSnapshotRepository(SQLiteTableRepository):
+    def __init__(self, connection: sqlite3.Connection) -> None:
+        super().__init__(connection, "dossier_snapshots")
+
+    def latest_for_user(self, user_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            """
+            SELECT * FROM dossier_snapshots
+            WHERE user_id = ?
+            ORDER BY created_at DESC, id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        return None if row is None else row_to_dict(row)

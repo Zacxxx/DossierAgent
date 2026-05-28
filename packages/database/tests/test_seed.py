@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -38,6 +39,19 @@ class SeedTests(unittest.TestCase):
                 extracted_text = tmp_path / "storage" / "extracted_text" / "demo" / "doc_identity.txt"
                 self.assertTrue(extracted_text.exists())
                 self.assertIn("Carte nationale", extracted_text.read_text(encoding="utf-8"))
+
+                snapshot = connection.execute(
+                    """
+                    SELECT missing_documents_json, warnings_json
+                    FROM dossier_snapshots
+                    WHERE id = ?
+                    """,
+                    ("snap_demo_latest",),
+                ).fetchone()
+                missing_types = {item["type"] for item in json.loads(snapshot["missing_documents_json"])}
+                warnings = json.loads(snapshot["warnings_json"])
+                self.assertEqual(missing_types, {"employment_contract", "latest_tax_notice"})
+                self.assertIn("Avis d impot possiblement obsolete.", warnings)
             finally:
                 connection.close()
 

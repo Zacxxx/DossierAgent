@@ -1,4 +1,4 @@
-from .dossier import extract_pdf_text
+from .dossier import analyze_dossier, extract_pdf_text
 from .listings import deduplicate_listing, normalize_listing, rank_listing
 
 PACKAGE_MANIFEST = {

@@ -1,6 +1,6 @@
 from .base import SQLiteTableRepository
 from .dashboard import DashboardRepository
-from .dossier import DossierDocumentRepository
+from .dossier import DossierDocumentRepository, DossierSnapshotRepository
 from .factory import DatabaseRepositories, build_repositories
 from .idempotency import IdempotencyKeyRepository
 from .listings import ListingRepository
@@ -12,6 +12,7 @@ __all__ = [
     "DashboardRepository",
     "DatabaseRepositories",
     "DossierDocumentRepository",
+    "DossierSnapshotRepository",
     "IdempotencyKeyRepository",
     "ListingRepository",
     "SQLiteTableRepository",

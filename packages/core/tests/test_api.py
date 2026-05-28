@@ -60,6 +60,7 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["current_watch"]["id"], "watch_toulouse_t2")
         self.assertEqual(payload["latest_run"]["stats"]["duplicates"], 8)
         self.assertEqual(payload["dossier"]["readiness_score"], 78)
+        self.assertEqual(payload["dossier"]["missing_docs"], ["employment_contract", "latest_tax_notice"])
         self.assertEqual(payload["pending_checks"], 3)
         self.assertEqual(payload["notifications_unread"], 5)
         self.assertEqual(len(payload["recommended_listings"]), 4)
@@ -376,6 +377,42 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "needs_review")
         self.assertFalse(payload["has_extracted_text"])
         self.assertTrue(payload["issues"][0].startswith("pdf_open_failed"))
+
+    def test_dossier_readiness_gets_latest_snapshot_and_analyzes_documents(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            tmp_path = Path(tmp_dir)
+            database_path = tmp_path / "dossieragent.db"
+            storage_path = tmp_path / "storage"
+            connection = create_connection(database_path)
+            try:
+                seed_demo_data(connection, storage_path=storage_path)
+            finally:
+                connection.close()
+
+            with patch.dict(
+                "os.environ",
+                {
+                    "DOSSIERAGENT_SQLITE_PATH": str(database_path),
+                    "DOSSIERAGENT_STORAGE_PATH": str(storage_path),
+                },
+            ):
+                initial_response = self.client.get("/api/v1/dossier/readiness")
+                analyze_response = self.client.post("/api/v1/dossier/analyze")
+                latest_response = self.client.get("/api/v1/dossier/readiness")
+
+        self.assertEqual(initial_response.status_code, 200)
+        initial_payload = initial_response.json()
+        self.assertEqual(initial_payload["readiness_score"], 78)
+        self.assertEqual(initial_payload["missing_docs"], ["employment_contract", "latest_tax_notice"])
+        self.assertIn("Avis d impot possiblement obsolete.", initial_payload["warnings"])
+
+        self.assertEqual(analyze_response.status_code, 201)
+        analyzed_payload = analyze_response.json()
+        self.assertEqual(analyzed_payload["readiness_score"], 78)
+        self.assertTrue(analyzed_payload["can_contact"])
+        self.assertFalse(analyzed_payload["can_send_full_dossier"])
+        self.assertEqual(analyzed_payload["missing_docs"], ["employment_contract", "latest_tax_notice"])
+        self.assertEqual(latest_response.json()["snapshot_id"], analyzed_payload["snapshot_id"])
 
 
 def build_pdf_bytes(text: str) -> bytes:

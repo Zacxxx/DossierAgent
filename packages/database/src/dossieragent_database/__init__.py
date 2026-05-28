@@ -9,6 +9,7 @@ from .public import PACKAGE_MANIFEST, get_manifest
 from .repositories import (
     DatabaseRepositories,
     DossierDocumentRepository,
+    DossierSnapshotRepository,
     SQLiteTableRepository,
     build_repositories,
 )
@@ -20,6 +21,7 @@ __all__ = [
     "PACKAGE_MANIFEST",
     "DatabaseRepositories",
     "DossierDocumentRepository",
+    "DossierSnapshotRepository",
     "SQLiteTableRepository",
     "build_repositories",
     "create_connection",

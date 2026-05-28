@@ -147,6 +147,20 @@ class RepositoryTests(unittest.TestCase):
                         "updated_at": now,
                     }
                 )
+                snapshot = repos.dossier_snapshots.create(
+                    {
+                        "id": "snap_001",
+                        "user_id": user["id"],
+                        "readiness_score": 70,
+                        "can_contact": 1,
+                        "can_send_full_dossier": 0,
+                        "missing_documents_json": '[{"type":"employment_contract"}]',
+                        "valid_documents_json": '["doc_001"]',
+                        "warnings_json": '["Avis fiscal a verifier."]',
+                        "recommendations_json": '["Ajouter le contrat de travail."]',
+                        "created_at": now,
+                    }
+                )
 
                 updated_listing = repos.listings.update(listing["id"], {"status": "saved"})
                 listing_search_rows, listing_search_total = repos.listings.search(
@@ -171,6 +185,7 @@ class RepositoryTests(unittest.TestCase):
                     document_id=document["id"],
                 )
                 active_documents = repos.dossier_documents.list_active_for_user(user["id"])
+                latest_snapshot = repos.dossier_snapshots.latest_for_user(user["id"])
 
                 self.assertEqual(repos.users.get("usr_001")["email"], "demo@example.com")
                 self.assertEqual(repos.search_criteria.list_by_user(user["id"])[0]["id"], "crit_001")
@@ -186,6 +201,7 @@ class RepositoryTests(unittest.TestCase):
                 self.assertEqual(idempotency_key["resource_id"], run["id"])
                 self.assertEqual(found_document["detected_type"], "payslip")
                 self.assertEqual(active_documents[0]["id"], "doc_001")
+                self.assertEqual(latest_snapshot["id"], snapshot["id"])
             finally:
                 connection.close()
 

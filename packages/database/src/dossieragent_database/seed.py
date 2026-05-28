@@ -390,8 +390,24 @@ def demo_snapshots(latest_run_at: str) -> tuple[dict[str, Any], ...]:
             "readiness_score": 78,
             "can_contact": 1,
             "can_send_full_dossier": 0,
-            "missing_documents_json": json_data(["employment_contract", "latest_tax_notice"]),
-            "valid_documents_json": json_data(["identity", "payslip_march", "payslip_april", "payslip_may"]),
+            "missing_documents_json": json_data(
+                [
+                    {
+                        "type": "employment_contract",
+                        "severity": "high",
+                        "reason": "Piece absente",
+                    },
+                    {
+                        "type": "latest_tax_notice",
+                        "severity": "medium",
+                        "reason": "Avis d impot possiblement obsolete",
+                    },
+                ]
+            ),
+            "valid_documents_json": json_data(
+                ["doc_identity", "doc_payslip_march", "doc_payslip_april", "doc_payslip_may"]
+            ),
+            "warnings_json": json_data(["Avis d impot possiblement obsolete."]),
             "recommendations_json": json_data(
                 [
                     "Ajouter le contrat de travail",

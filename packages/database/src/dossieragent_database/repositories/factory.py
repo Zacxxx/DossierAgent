@@ -5,7 +5,7 @@ from dataclasses import dataclass
 
 from .base import SQLiteTableRepository
 from .dashboard import DashboardRepository
-from .dossier import DossierDocumentRepository
+from .dossier import DossierDocumentRepository, DossierSnapshotRepository
 from .idempotency import IdempotencyKeyRepository
 from .listings import ListingRepository
 from .runs import AgentEventRepository, AgentRunRepository
@@ -19,7 +19,7 @@ class DatabaseRepositories:
     market_watches: SQLiteTableRepository
     listings: ListingRepository
     dossier_documents: DossierDocumentRepository
-    dossier_snapshots: SQLiteTableRepository
+    dossier_snapshots: DossierSnapshotRepository
     contact_packets: SQLiteTableRepository
     user_checks: SQLiteTableRepository
     notifications: SQLiteTableRepository
@@ -37,7 +37,7 @@ def build_repositories(connection: sqlite3.Connection) -> DatabaseRepositories:
         market_watches=SQLiteTableRepository(connection, "market_watches"),
         listings=ListingRepository(connection),
         dossier_documents=DossierDocumentRepository(connection),
-        dossier_snapshots=SQLiteTableRepository(connection, "dossier_snapshots"),
+        dossier_snapshots=DossierSnapshotRepository(connection),
         contact_packets=SQLiteTableRepository(connection, "contact_packets"),
         user_checks=SQLiteTableRepository(connection, "user_checks"),
         notifications=SQLiteTableRepository(connection, "notifications"),
