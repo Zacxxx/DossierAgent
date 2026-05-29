@@ -119,9 +119,12 @@ switch (mode) {
   case "check":
     runChecks();
     break;
+  case "test:integration":
+    runIntegrationTests(commandArgs);
+    break;
   default:
     console.error(`Unknown command: ${mode}`);
-    console.error("Usage: dossieragent <dev|start|status|packages|seed|check>");
+    console.error("Usage: dossieragent <dev|start|status|packages|seed|check|test:integration>");
     process.exit(2);
 }
 
@@ -370,6 +373,30 @@ function runChecks() {
 
   console.log("");
   console.log("Checks passed.");
+}
+
+function runIntegrationTests(args) {
+  printHeader("test:integration");
+  const result = spawnSync(
+    "uv",
+    [
+      "run",
+      "--project",
+      "packages/core",
+      "pytest",
+      "packages/core/tests/test_api_integration.py",
+      ...args,
+    ],
+    {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        PYTHONPATH: pythonPathForService("core"),
+      },
+      stdio: "inherit",
+    },
+  );
+  if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
 function checkFeaturePackageImports() {
