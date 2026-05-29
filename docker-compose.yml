@@ -1,0 +1,168 @@
+x-api-build: &api-build
+  context: .
+  dockerfile: docker/api.Dockerfile
+
+x-app-environment: &app-environment
+  APP_ENV: ${APP_ENV:-dev}
+  DOSSIERAGENT_SQLITE_PATH: ${DOSSIERAGENT_SQLITE_PATH:-/app/data/dossieragent.db}
+  DOSSIERAGENT_STORAGE_PATH: ${DOSSIERAGENT_STORAGE_PATH:-/app/storage}
+  DOSSIERAGENT_CRON_SECRET: ${DOSSIERAGENT_CRON_SECRET:-dossieragent_local_cron_2026}
+  DOSSIERAGENT_ELASTIC_URL: ${DOSSIERAGENT_ELASTIC_URL:-}
+  DOSSIERAGENT_ELASTIC_LISTINGS_INDEX: ${DOSSIERAGENT_ELASTIC_LISTINGS_INDEX:-listings_v1}
+  DOSSIERAGENT_ELASTIC_API_KEY: ${DOSSIERAGENT_ELASTIC_API_KEY:-}
+  KIBANA_URL: ${KIBANA_URL:-http://kibana:5601}
+
+services:
+  seed:
+    image: dossieragent-api:local
+    build: *api-build
+    user: "${DOSSIERAGENT_CONTAINER_UID:-1000}:${DOSSIERAGENT_CONTAINER_GID:-1000}"
+    command:
+      - python
+      - -m
+      - dossieragent_database.seed
+      - --database-path
+      - /app/data/dossieragent.db
+      - --storage-path
+      - /app/storage
+    environment: *app-environment
+    volumes:
+      - ./data:/app/data
+      - ./storage:/app/storage
+    restart: "no"
+
+  api:
+    image: dossieragent-api:local
+    build: *api-build
+    user: "${DOSSIERAGENT_CONTAINER_UID:-1000}:${DOSSIERAGENT_CONTAINER_GID:-1000}"
+    command:
+      - python
+      - -m
+      - dossieragent_core.api
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+    environment: *app-environment
+    ports:
+      - "${DOSSIERAGENT_API_PORT:-8000}:8000"
+    volumes:
+      - ./data:/app/data
+      - ./storage:/app/storage
+    depends_on:
+      seed:
+        condition: service_completed_successfully
+      elasticsearch:
+        condition: service_healthy
+      kibana:
+        condition: service_started
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()"
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+
+  frontend:
+    image: dossieragent-frontend:local
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+      VITE_DEV_HOST: 0.0.0.0
+      DOSSIERAGENT_API_PROXY_TARGET: http://api:8000
+    ports:
+      - "${DOSSIERAGENT_FRONTEND_PORT:-5173}:5173"
+    depends_on:
+      api:
+        condition: service_started
+
+  playwright-worker:
+    image: dossieragent-playwright-worker:local
+    build:
+      context: .
+      dockerfile: docker/browser-worker.Dockerfile
+    user: "${DOSSIERAGENT_CONTAINER_UID:-1000}:${DOSSIERAGENT_CONTAINER_GID:-1000}"
+    command:
+      - python
+      - -m
+      - dossieragent_browser.worker
+      - --artifact-dir
+      - /app/storage/browser
+    environment:
+      DOSSIERAGENT_STORAGE_PATH: /app/storage
+      DOSSIERAGENT_BROWSER_ALLOWED_SOURCES: ${DOSSIERAGENT_BROWSER_ALLOWED_SOURCES:-manual_url,demo_seed}
+      DOSSIERAGENT_BROWSER_ALLOWED_SCHEMES: ${DOSSIERAGENT_BROWSER_ALLOWED_SCHEMES:-https,http}
+      DOSSIERAGENT_BROWSER_ALLOWED_HOSTS: ${DOSSIERAGENT_BROWSER_ALLOWED_HOSTS:-}
+      DOSSIERAGENT_BROWSER_DELAY_SECONDS: ${DOSSIERAGENT_BROWSER_DELAY_SECONDS:-0}
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      api:
+        condition: service_started
+    restart: "no"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:${ELASTIC_VERSION:-9.2.0}
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "true"
+      xpack.security.http.ssl.enabled: "false"
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-dossieragent_local_elastic_2026}
+      ES_JAVA_OPTS: -Xms1g -Xmx1g
+    ports:
+      - "9200:9200"
+    volumes:
+      - elastic_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - "curl -fsS -u elastic:${ELASTIC_PASSWORD:-dossieragent_local_elastic_2026} http://localhost:9200/_cluster/health >/dev/null"
+      interval: 10s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+
+  elastic-setup:
+    image: curlimages/curl:8.11.1
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    command:
+      - sh
+      - -c
+      - |
+        curl -fsS -u "elastic:$${ELASTIC_PASSWORD}" \
+          -X POST "http://elasticsearch:9200/_security/user/kibana_system/_password" \
+          -H "Content-Type: application/json" \
+          -d "{\"password\":\"$${KIBANA_SYSTEM_PASSWORD}\"}"
+    environment:
+      ELASTIC_PASSWORD: ${ELASTIC_PASSWORD:-dossieragent_local_elastic_2026}
+      KIBANA_SYSTEM_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-dossieragent_local_kibana_2026}
+    restart: "no"
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:${ELASTIC_VERSION:-9.2.0}
+    environment:
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+      ELASTICSEARCH_USERNAME: kibana_system
+      ELASTICSEARCH_PASSWORD: ${KIBANA_SYSTEM_PASSWORD:-dossieragent_local_kibana_2026}
+      XPACK_ENCRYPTEDSAVEDOBJECTS_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-dossieragent_local_kibana_encryption_2026}
+      XPACK_SECURITY_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-dossieragent_local_kibana_encryption_2026}
+      XPACK_REPORTING_ENCRYPTIONKEY: ${KIBANA_ENCRYPTION_KEY:-dossieragent_local_kibana_encryption_2026}
+    ports:
+      - "${KIBANA_PORT:-5601}:5601"
+    volumes:
+      - kibana_data:/usr/share/kibana/data
+    depends_on:
+      elastic-setup:
+        condition: service_completed_successfully
+
+volumes:
+  elastic_data:
+  kibana_data:
