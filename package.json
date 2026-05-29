@@ -16,6 +16,7 @@
     "status": "node scripts/dossieragent.mjs status",
     "packages": "node scripts/dossieragent.mjs packages",
     "seed": "node scripts/dossieragent.mjs seed",
-    "check": "node scripts/dossieragent.mjs check"
+    "check": "node scripts/dossieragent.mjs check",
+    "test:integration": "node scripts/dossieragent.mjs test:integration"
   }
 }
