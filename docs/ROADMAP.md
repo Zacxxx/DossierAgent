@@ -76,5 +76,5 @@ Goal: make the partner/demo story credible.
 - Docker Compose with Elasticsearch and Kibana
 - Demo seed script
 - Playwright E2E smoke test
-- VM deployment notes
-- Final polish
+- VM deployment notes in `docs/DEPLOYMENT_AND_DEMO.md`
+- Final demo runbook in `docs/DEPLOYMENT_AND_DEMO.md`
