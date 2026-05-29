@@ -1,3 +1,10 @@
+from .elastic import (
+    build_elastic_agent_builder_config,
+    fallback_mcp_elasticsearch_policy,
+    list_allowed_mcp_tools,
+    list_index_permissions,
+)
+
 PACKAGE_MANIFEST = {
     "name": "mcp",
     "concern": "MCP configuration and Elastic Agent Builder integration.",
@@ -9,6 +16,8 @@ PACKAGE_MANIFEST = {
     "exposes": (
         "build_elastic_agent_builder_config",
         "list_allowed_mcp_tools",
+        "list_index_permissions",
+        "fallback_mcp_elasticsearch_policy",
     ),
     "events": (
         "mcp.config.generated",
@@ -18,4 +27,3 @@ PACKAGE_MANIFEST = {
 
 def get_manifest() -> dict[str, object]:
     return dict(PACKAGE_MANIFEST)
-

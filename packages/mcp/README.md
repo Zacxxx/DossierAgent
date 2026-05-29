@@ -22,3 +22,70 @@ Model Context Protocol integration package.
 - Elastic Agent Builder connection metadata
 - allowed MCP tool declarations
 
+## Kibana Agent Builder MCP
+
+The primary MCP path is Kibana Agent Builder, exposed at:
+
+```text
+{KIBANA_URL}/api/agent_builder/mcp
+```
+
+For a Kibana Space, use:
+
+```text
+{KIBANA_URL}/s/{space_id}/api/agent_builder/mcp
+```
+
+`build_elastic_agent_builder_config()` emits an MCP client config that runs
+`mcp-remote` and passes the authorization header through environment variables:
+
+```json
+{
+  "mcpServers": {
+    "elastic-agent-builder": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "${KIBANA_URL}/api/agent_builder/mcp",
+        "--header",
+        "Authorization:${ELASTIC_MCP_AUTH_HEADER}"
+      ],
+      "env": {
+        "KIBANA_URL": "${KIBANA_URL}",
+        "ELASTIC_MCP_AUTH_HEADER": "ApiKey ${ELASTIC_API_KEY}"
+      }
+    }
+  }
+}
+```
+
+The API key itself must come from the runtime environment. Do not commit a
+resolved `Authorization` header or raw Elastic API key.
+
+## Allowed Tools And Index Permissions
+
+DossierAgent should expose only read-only MCP capabilities for the MVP:
+
+| Tool | Purpose | Indices |
+|---|---|---|
+| `search` | Retrieve matching listings and dossier metadata | `listings_v1`, `documents_v1` |
+| `esql` | Run read-only ES\|QL analysis over allowed indices | `listings_v1`, `documents_v1` |
+| `get_mappings` | Inspect schemas for allowed indices | `listings_v1`, `documents_v1` |
+
+The corresponding Elasticsearch index privileges are:
+
+| Index | Privileges |
+|---|---|
+| `listings_v1` | `read`, `view_index_metadata` |
+| `documents_v1` | `read`, `view_index_metadata` |
+
+Do not grant write, delete, index-management, cluster-admin, or unrestricted
+wildcard privileges to the demo MCP credential.
+
+## Fallback Plan B
+
+`mcp-server-elasticsearch` is a fallback only. Use it only if Kibana Agent
+Builder is unavailable because of deployment, version, or license constraints.
+It is less credible for the partner MCP demo and should stay limited to read
+and inspection tools such as `list_indices`, `get_mappings`, `search`, `esql`,
+and `get_shards`.
