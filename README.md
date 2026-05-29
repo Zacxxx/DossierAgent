@@ -96,6 +96,9 @@ Local service URLs:
 
 SQLite is mounted for a single-machine MVP. Do not run multiple API containers or multiple VMs against the same SQLite file.
 
+For VM sizing, Docker setup, backup notes, and the three-minute reviewer demo,
+see [docs/DEPLOYMENT_AND_DEMO.md](docs/DEPLOYMENT_AND_DEMO.md).
+
 ## Architecture
 
 The dependency rule is strict:
