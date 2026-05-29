@@ -122,9 +122,12 @@ switch (mode) {
   case "test:integration":
     runIntegrationTests(commandArgs);
     break;
+  case "test:e2e":
+    runFrontendE2E(commandArgs);
+    break;
   default:
     console.error(`Unknown command: ${mode}`);
-    console.error("Usage: dossieragent <dev|start|status|packages|seed|check|test:integration>");
+    console.error("Usage: dossieragent <dev|start|status|packages|seed|check|test:integration|test:e2e>");
     process.exit(2);
 }
 
@@ -396,6 +399,18 @@ function runIntegrationTests(args) {
       stdio: "inherit",
     },
   );
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
+function runFrontendE2E(args) {
+  printHeader("test:e2e");
+  const result = spawnSync(detectPackageManager(), ["run", "test:e2e", ...args], {
+    cwd: packageRoot("frontend"),
+    env: {
+      ...process.env,
+    },
+    stdio: "inherit",
+  });
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 

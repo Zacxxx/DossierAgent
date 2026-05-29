@@ -7,7 +7,8 @@
     "dev": "vite",
     "start": "vite",
     "build": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit && vite build",
-    "check": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit"
+    "check": "tsc --noEmit && tsc -p tsconfig.node.json --noEmit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.1",
@@ -22,9 +23,10 @@
     "zod": "^3.24.1"
   },
   "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^22.10.2",
     "@types/react": "^19.0.1",
     "@types/react-dom": "^19.0.2",
-    "@types/node": "^22.10.2",
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "postcss": "^8.4.49",
