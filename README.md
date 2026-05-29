@@ -66,6 +66,35 @@ bun run seed
 
 The seed command writes to SQLite and generated demo storage artifacts. API and frontend work should read this state instead of embedding placeholder data.
 
+## Docker Compose
+
+For the full local stack with API, frontend, Elasticsearch, Kibana, and the Playwright worker:
+
+```bash
+cp .env.example .env
+docker compose up --build
+```
+
+The compose stack mounts SQLite and generated files from the repository:
+
+- `./data` -> `/app/data`
+- `./storage` -> `/app/storage`
+
+The `seed` service runs the deterministic demo seed before the API starts. To refresh demo data later:
+
+```bash
+docker compose run --rm seed
+```
+
+Local service URLs:
+
+- Frontend: `http://127.0.0.1:5173`
+- API: `http://127.0.0.1:8000`
+- Kibana: `http://127.0.0.1:5601`
+- Elasticsearch: `http://127.0.0.1:9200`
+
+SQLite is mounted for a single-machine MVP. Do not run multiple API containers or multiple VMs against the same SQLite file.
+
 ## Architecture
 
 The dependency rule is strict:
