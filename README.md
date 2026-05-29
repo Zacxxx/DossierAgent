@@ -52,6 +52,7 @@ Useful commands:
 | `bun run seed` / `npm run seed` | Create/update the deterministic local demo database |
 | `bun run check` / `npm run check` | Compile Python packages and enforce package isolation |
 | `bun run test:integration` / `npm run test:integration` | Run FastAPI integration tests against isolated SQLite databases |
+| `bun run test:e2e` / `npm run test:e2e` | Run the Playwright demo-path smoke test with isolated seeded state |
 
 Today the root launcher starts:
 

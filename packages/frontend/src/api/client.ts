@@ -128,6 +128,41 @@ const dossierDocumentListSchema = z.object({
   items: z.array(dossierDocumentSchema),
 });
 
+const contactPacketSchema = z.object({
+  id: z.string(),
+  listing_id: z.string(),
+  status: z.string(),
+  language: z.string(),
+  tone: z.string(),
+  message_draft: z.string(),
+  questions_to_ask: z.array(z.string()),
+  dossier_summary: z.record(z.unknown()),
+  user_check_id: z.string().optional(),
+  used_at: z.string().nullable(),
+  used_channel: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+
+const userCheckSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  resource_type: z.string(),
+  resource_id: z.string(),
+  title: z.string(),
+  summary: z.string(),
+  status: z.string(),
+  payload: z.record(z.unknown()),
+  completed_with: z.string().nullable(),
+  completed_note: z.string().nullable(),
+  created_at: z.string(),
+  completed_at: z.string().nullable(),
+});
+
+const userChecksListSchema = z.object({
+  items: z.array(userCheckSchema),
+});
+
 export const dashboardSchema = z.object({
   current_watch: z.object({
     id: z.string(),
@@ -164,6 +199,8 @@ export type ListingList = z.infer<typeof listingListSchema>;
 export type DossierReadiness = z.infer<typeof dossierReadinessSchema>;
 export type DossierDocument = z.infer<typeof dossierDocumentSchema>;
 export type MissingDocument = z.infer<typeof missingDocumentSchema>;
+export type ContactPacket = z.infer<typeof contactPacketSchema>;
+export type UserCheck = z.infer<typeof userCheckSchema>;
 
 export type ListingFilters = {
   q?: string;
@@ -252,6 +289,47 @@ export async function uploadDossierDocument({
   return fetchJson("/dossier/documents", dossierDocumentSchema, {
     method: "POST",
     body: formData,
+  });
+}
+
+export async function createContactPacket({
+  listingId,
+  language = "fr",
+  tone = "polite_direct",
+  includeDossierSummary = true,
+}: {
+  listingId: string;
+  language?: string;
+  tone?: string;
+  includeDossierSummary?: boolean;
+}): Promise<ContactPacket> {
+  return fetchJson("/contact-packets", contactPacketSchema, {
+    method: "POST",
+    body: JSON.stringify({
+      listing_id: listingId,
+      language,
+      tone,
+      include_dossier_summary: includeDossierSummary,
+    }),
+  });
+}
+
+export async function getUserChecks(): Promise<{ items: UserCheck[] }> {
+  return fetchJson("/user-checks", userChecksListSchema);
+}
+
+export async function completeUserCheck({
+  checkId,
+  decision,
+  note,
+}: {
+  checkId: string;
+  decision: "approved" | "rejected";
+  note?: string;
+}): Promise<UserCheck> {
+  return fetchJson(`/user-checks/${encodeURIComponent(checkId)}/complete`, userCheckSchema, {
+    method: "POST",
+    body: JSON.stringify({ decision, note }),
   });
 }
 

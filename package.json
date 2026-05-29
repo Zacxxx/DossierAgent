@@ -17,6 +17,7 @@
     "packages": "node scripts/dossieragent.mjs packages",
     "seed": "node scripts/dossieragent.mjs seed",
     "check": "node scripts/dossieragent.mjs check",
-    "test:integration": "node scripts/dossieragent.mjs test:integration"
+    "test:integration": "node scripts/dossieragent.mjs test:integration",
+    "test:e2e": "node scripts/dossieragent.mjs test:e2e"
   }
 }
