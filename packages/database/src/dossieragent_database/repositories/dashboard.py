@@ -64,7 +64,8 @@ class DashboardRepository:
         rows = self.connection.execute(
             """
             SELECT id, title, city, district, price, currency, surface, rooms, status,
-                   fit_score, fit_level, risk_flags_json, explanation_json
+                   fit_score, fit_level, risk_flags_json, explanation_json,
+                   source_url, canonical_url, raw_payload_json
             FROM listings
             WHERE user_id = ? AND status = 'recommended'
             ORDER BY fit_score DESC, updated_at DESC

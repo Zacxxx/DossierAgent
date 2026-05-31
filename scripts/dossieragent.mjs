@@ -5,6 +5,10 @@ import { spawn, spawnSync } from "node:child_process";
 import process from "node:process";
 
 const rootDir = resolve(new URL("..", import.meta.url).pathname);
+const parentEnvKeys = new Set(Object.keys(process.env));
+
+loadEnvFile(".env", parentEnvKeys);
+loadEnvFile(".env.local", parentEnvKeys);
 
 const packages = [
   {
@@ -113,11 +117,17 @@ switch (mode) {
   case "packages":
     printPackages();
     break;
+  case "mcp":
+    runMcpStdio(commandArgs);
+    break;
   case "seed":
     runSeed(commandArgs);
     break;
   case "check":
     runChecks();
+    break;
+  case "eval:ai":
+    runAiEvaluation(commandArgs);
     break;
   case "test:integration":
     runIntegrationTests(commandArgs);
@@ -127,7 +137,7 @@ switch (mode) {
     break;
   default:
     console.error(`Unknown command: ${mode}`);
-    console.error("Usage: dossieragent <dev|start|status|packages|seed|check|test:integration|test:e2e>");
+    console.error("Usage: dossieragent <dev|start|status|packages|mcp|seed|check|eval:ai|test:integration|test:e2e>");
     process.exit(2);
 }
 
@@ -138,6 +148,36 @@ function detectPackageManager() {
 
 function readJson(path) {
   return JSON.parse(readFileSync(join(rootDir, path), "utf8"));
+}
+
+function loadEnvFile(path, parentKeys) {
+  const fullPath = join(rootDir, path);
+  if (!existsSync(fullPath)) return;
+
+  const lines = readFileSync(fullPath, "utf8").split(/\r?\n/);
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+
+    const assignment = trimmed.startsWith("export ") ? trimmed.slice("export ".length).trim() : trimmed;
+    const separatorIndex = assignment.indexOf("=");
+    if (separatorIndex <= 0) continue;
+
+    const key = assignment.slice(0, separatorIndex).trim();
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) || parentKeys.has(key)) continue;
+
+    process.env[key] = parseEnvValue(assignment.slice(separatorIndex + 1).trim());
+  }
+}
+
+function parseEnvValue(rawValue) {
+  if (
+    (rawValue.startsWith('"') && rawValue.endsWith('"')) ||
+    (rawValue.startsWith("'") && rawValue.endsWith("'"))
+  ) {
+    return rawValue.slice(1, -1);
+  }
+  return rawValue;
 }
 
 function packageRoot(packageName) {
@@ -331,6 +371,22 @@ function runSeed(args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
+function runMcpStdio(args) {
+  const result = spawnSync(
+    "uv",
+    ["run", "--project", "packages/mcp", "dossieragent-mcp-stdio", ...args],
+    {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        PYTHONPATH: pythonPathForService("mcp"),
+      },
+      stdio: "inherit",
+    },
+  );
+  if (result.status !== 0) process.exit(result.status ?? 1);
+}
+
 function runChecks() {
   printHeader("check");
   const failures = [];
@@ -376,6 +432,23 @@ function runChecks() {
 
   console.log("");
   console.log("Checks passed.");
+}
+
+function runAiEvaluation(args) {
+  printHeader("eval:ai");
+  const result = spawnSync(
+    "uv",
+    ["run", "--project", "packages/core", "pytest", "evals/ai", ...args],
+    {
+      cwd: rootDir,
+      env: {
+        ...process.env,
+        PYTHONPATH: pythonPathForService("core"),
+      },
+      stdio: "inherit",
+    },
+  );
+  if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
 function runIntegrationTests(args) {

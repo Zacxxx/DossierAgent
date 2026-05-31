@@ -1,4 +1,12 @@
 from .indices import ensure_indices, load_mapping, verify_index_mapping
+from .indexing import (
+    BulkIndexResult,
+    build_listing_bulk_ndjson,
+    build_listing_bulk_operations,
+    bulk_index_listings,
+    listing_index_document,
+    parse_bulk_index_response,
+)
 from .queries import build_listing_search_query
 
 PACKAGE_MANIFEST = {

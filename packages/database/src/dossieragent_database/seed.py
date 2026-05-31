@@ -118,7 +118,7 @@ def seed_rows(storage_root: Path) -> dict[str, tuple[dict[str, Any], ...]]:
             "frequency": "twice_daily",
             "next_run_at": "2026-05-27T18:30:00Z",
             "last_run_at": latest_run_at,
-            "source_config_json": json_data({"sources": ["seed_direct_urls", "seed_result_pages"]}),
+            "source_config_json": json_data(demo_next_scan_source_config()),
             "created_at": now,
             "updated_at": latest_run_at,
         },
@@ -159,6 +159,177 @@ def seed_rows(storage_root: Path) -> dict[str, tuple[dict[str, Any], ...]]:
         "agent_runs": demo_runs(now, latest_run_at),
         "agent_events": demo_events(now, latest_run_at),
     }
+
+
+def demo_next_scan_source_config() -> dict[str, Any]:
+    list_url = "https://demo.dossieragent.local/search/toulouse-t2-run"
+    return {
+        "sources": [
+            {
+                "source": "demo_seed",
+                "mode": "list_page",
+                "url": list_url,
+                "timeout": 5,
+                "html": demo_next_scan_list_page_html(list_url),
+                "detail_html_by_url": demo_next_scan_detail_pages(),
+            }
+        ]
+    }
+
+
+def demo_next_scan_list_page_html(list_url: str) -> str:
+    return f"""
+<!doctype html>
+<html>
+  <head><title>Demo scan Toulouse T2</title><link rel="canonical" href="{list_url}" /></head>
+  <body>
+    <main>
+      <a href="/listings/031"
+        data-listing-id="seed-031"
+        data-title="Deux pieces renove rue des Filatiers"
+        data-price="805"
+        data-currency="EUR"
+        data-surface="41"
+        data-city="Toulouse"
+        data-district="Carmes"
+        data-image-url="https://images.unsplash.com/photo-1560185127-6ed189bf02f4?auto=format&fit=crop&w=900&q=80">
+        Deux pieces renove rue des Filatiers - 805 EUR - 41 m2
+      </a>
+      <a href="/listings/001"
+        data-listing-id="seed-001"
+        data-title="T2 Saint-Cyprien proche metro"
+        data-price="790"
+        data-currency="EUR"
+        data-surface="39"
+        data-city="Toulouse"
+        data-district="Saint-Cyprien">
+        T2 Saint-Cyprien proche metro - deja connu
+      </a>
+      <a href="/listings/repost-carmes-002"
+        data-listing-id="seed-repost-002"
+        data-title="T2 Carmes calme balcon"
+        data-price="820"
+        data-currency="EUR"
+        data-surface="38"
+        data-city="Toulouse"
+        data-district="Carmes">
+        T2 Carmes calme balcon - nouvelle URL
+      </a>
+    </main>
+  </body>
+</html>
+""".strip()
+
+
+def demo_next_scan_detail_pages() -> dict[str, str]:
+    return {
+        "https://demo.dossieragent.local/listings/031": demo_listing_detail_html(
+            canonical_url="https://demo.dossieragent.local/listings/031",
+            sku="seed-031",
+            title="Deux pieces renove rue des Filatiers",
+            description=(
+                "T2 renove a Carmes, proche metro, charges incluses, disponible maintenant. "
+                "Contact agence pour organiser une visite supervisee."
+            ),
+            image_url="https://images.unsplash.com/photo-1560185127-6ed189bf02f4?auto=format&fit=crop&w=900&q=80",
+            price=805,
+            surface=41,
+            rooms=2,
+            city="Toulouse",
+            district="Carmes",
+            postal_code="31000",
+            seller="Agence Demo Toulouse",
+        ),
+        "https://demo.dossieragent.local/listings/001": demo_listing_detail_html(
+            canonical_url="https://demo.dossieragent.local/listings/001",
+            sku="seed-001",
+            title="T2 Saint-Cyprien proche metro",
+            description=(
+                "T2 Saint-Cyprien proche metro, charges incluses, disponible maintenant. "
+                "Contact agence pour organiser une visite supervisee."
+            ),
+            image_url="https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=80",
+            price=790,
+            surface=39,
+            rooms=2,
+            city="Toulouse",
+            district="Saint-Cyprien",
+            postal_code="31300",
+            seller="Agence Demo Toulouse",
+        ),
+        "https://demo.dossieragent.local/listings/repost-carmes-002": demo_listing_detail_html(
+            canonical_url="https://demo.dossieragent.local/listings/repost-carmes-002",
+            sku="seed-repost-002",
+            title="T2 Carmes calme balcon",
+            description=(
+                "T2 Carmes calme avec balcon, metro proche, charges incluses, "
+                "disponible maintenant. Contact gestionnaire."
+            ),
+            image_url="https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=900&q=80",
+            price=820,
+            surface=38,
+            rooms=2,
+            city="Toulouse",
+            district="Carmes",
+            postal_code="31000",
+            seller="Gestion Carmes Demo",
+        ),
+    }
+
+
+def demo_listing_detail_html(
+    *,
+    canonical_url: str,
+    sku: str,
+    title: str,
+    description: str,
+    image_url: str,
+    price: int,
+    surface: int,
+    rooms: int,
+    city: str,
+    district: str,
+    postal_code: str,
+    seller: str,
+) -> str:
+    json_ld = {
+        "@context": "https://schema.org",
+        "@type": "Apartment",
+        "name": title,
+        "description": description,
+        "url": canonical_url,
+        "image": [image_url],
+        "sku": sku,
+        "numberOfRooms": rooms,
+        "floorSize": {"@type": "QuantitativeValue", "value": surface, "unitCode": "MTK"},
+        "offers": {"@type": "Offer", "price": str(price), "priceCurrency": "EUR"},
+        "address": {
+            "@type": "PostalAddress",
+            "addressLocality": city,
+            "addressRegion": district,
+            "postalCode": postal_code,
+        },
+        "seller": {"@type": "RealEstateAgent", "name": seller},
+    }
+    return f"""
+<!doctype html>
+<html>
+  <head>
+    <title>{title}</title>
+    <link rel="canonical" href="{canonical_url}" />
+    <meta name="description" content="{description}" />
+    <meta property="og:image" content="{image_url}" />
+    <script type="application/ld+json">{json_data(json_ld)}</script>
+  </head>
+  <body>
+    <main>
+      <h1>{title}</h1>
+      <p>{description}</p>
+      <p>{surface} m2 - {rooms} pieces - {price} EUR - quartier: {district}</p>
+    </main>
+  </body>
+</html>
+""".strip()
 
 
 def demo_listings(now: str, latest_run_at: str) -> tuple[dict[str, Any], ...]:
@@ -305,12 +476,28 @@ def listing_row(
         "fit_level": "strong" if score >= 80 else "medium" if score >= 50 else "low",
         "risk_flags_json": json_data(list(risk_flags)),
         "explanation_json": json_data(list(explanation)),
-        "raw_payload_json": json_data({"seed": True, "source": "demo_seed"}),
+        "raw_payload_json": json_data(
+            {
+                "seed": True,
+                "source": "demo_seed",
+                "image_urls": demo_listing_images(numeric_id),
+            }
+        ),
         "first_seen_at": now,
         "last_seen_at": latest_run_at,
         "created_at": now,
         "updated_at": latest_run_at,
     }
+
+
+def demo_listing_images(numeric_id: str) -> list[str]:
+    image_by_listing = {
+        "001": "https://images.unsplash.com/photo-1522708323590-d24dbb6b0267?auto=format&fit=crop&w=900&q=80",
+        "002": "https://images.unsplash.com/photo-1505693416388-ac5ce068fe85?auto=format&fit=crop&w=900&q=80",
+        "003": "https://images.unsplash.com/photo-1484154218962-a197022b5858?auto=format&fit=crop&w=900&q=80",
+        "004": "https://images.unsplash.com/photo-1502672260266-1c1ef2d93688?auto=format&fit=crop&w=900&q=80",
+    }
+    return [image_by_listing[numeric_id]] if numeric_id in image_by_listing else []
 
 
 def demo_documents(now: str, extracted_root: Path) -> tuple[dict[str, Any], ...]:

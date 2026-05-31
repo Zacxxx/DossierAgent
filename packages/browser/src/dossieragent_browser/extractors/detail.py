@@ -128,6 +128,7 @@ class PageSummaryParser(HTMLParser):
         super().__init__()
         self.meta: dict[str, str] = {}
         self.links: dict[str, str] = {}
+        self.image_urls: list[str] = []
         self.title_parts: list[str] = []
         self.text_parts: list[str] = []
         self.json_ld_blocks: list[str] = []
@@ -158,6 +159,14 @@ class PageSummaryParser(HTMLParser):
             href = attrs_map.get("href")
             if "canonical" in rel.split() and href:
                 self.links["canonical"] = unescape(href.strip())
+        elif tag == "img":
+            image_url = first_clean_string(
+                attrs_map.get("src"),
+                attrs_map.get("data-src"),
+                attrs_map.get("data-lazy-src"),
+            )
+            if image_url is not None:
+                self.image_urls.append(image_url)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
@@ -274,6 +283,18 @@ def candidate_from_html(
         value_from_path(primary_record, ("provider", "name")),
         parser.meta.get("author"),
     )
+    image_urls = normalize_image_urls(
+        [
+            primary_record.get("image"),
+            primary_record.get("photo"),
+            parser.meta.get("og:image"),
+            parser.meta.get("og:image:url"),
+            parser.meta.get("twitter:image"),
+            parser.meta.get("twitter:image:src"),
+            parser.image_urls,
+        ],
+        base_url=canonical_url,
+    )
 
     return ListingCandidate(
         source=source,
@@ -293,6 +314,7 @@ def candidate_from_html(
         contact_hint=contact_hint(text),
         raw_payload={
             "extractor": "browser.direct_url.v1",
+            "image_urls": list(image_urls),
             "json_ld_records": len(json_ld_records),
             "meta": parser.meta,
             "text_excerpt": text[:500],
@@ -367,6 +389,51 @@ def value_from_path(payload: Mapping[str, Any], path: tuple[str, ...]) -> Any:
             return None
         current = current.get(key)
     return current
+
+
+def normalize_image_urls(values: Any, *, base_url: str, limit: int = 8) -> tuple[str, ...]:
+    urls: list[str] = []
+    seen: set[str] = set()
+    for value in iter_image_url_values(values):
+        cleaned = clean_string(value)
+        if cleaned is None:
+            continue
+        absolute_url = absolute_http_url(cleaned, base_url=base_url)
+        if absolute_url is None or absolute_url in seen:
+            continue
+        seen.add(absolute_url)
+        urls.append(absolute_url)
+        if len(urls) >= limit:
+            break
+    return tuple(urls)
+
+
+def iter_image_url_values(value: Any) -> tuple[Any, ...]:
+    if value is None:
+        return ()
+    if isinstance(value, str):
+        return (value,)
+    if isinstance(value, Mapping):
+        candidates: list[Any] = []
+        for key in ("url", "contentUrl", "thumbnailUrl", "src"):
+            if key in value:
+                candidates.extend(iter_image_url_values(value[key]))
+        return tuple(candidates)
+    if isinstance(value, list | tuple):
+        candidates = []
+        for item in value:
+            candidates.extend(iter_image_url_values(item))
+        return tuple(candidates)
+    return ()
+
+
+def absolute_http_url(value: str, *, base_url: str) -> str | None:
+    joined = urljoin(base_url, value.strip())
+    parsed = urlsplit(joined)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    path = re.sub(r"/+", "/", parsed.path or "/")
+    return urlunsplit((parsed.scheme.lower(), parsed.netloc.lower(), path, parsed.query, ""))
 
 
 def first_clean_string(*values: Any) -> str | None:

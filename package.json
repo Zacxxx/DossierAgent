@@ -15,8 +15,10 @@
     "start": "node scripts/dossieragent.mjs start",
     "status": "node scripts/dossieragent.mjs status",
     "packages": "node scripts/dossieragent.mjs packages",
+    "mcp": "node scripts/dossieragent.mjs mcp",
     "seed": "node scripts/dossieragent.mjs seed",
     "check": "node scripts/dossieragent.mjs check",
+    "eval:ai": "node scripts/dossieragent.mjs eval:ai",
     "test:integration": "node scripts/dossieragent.mjs test:integration",
     "test:e2e": "node scripts/dossieragent.mjs test:e2e"
   }

@@ -38,3 +38,11 @@ keep scalar fields for UI filters, sorting, and auditability.
 filters (`status`, `city`, `district`, price, surface, score) plus lexical `q`
 search. `core` can call it when Elastic is configured, while SQLite remains the
 local fallback and operational source of truth.
+
+## Listing Indexing
+
+`listing_index_document`, `build_listing_bulk_operations`, and
+`build_listing_bulk_ndjson` shape SQLite-style listing rows into the
+`listings_v1` mapping without importing `core` or `database`. `core` wires this
+port during watch runs and posts the bulk payload only when
+`DOSSIERAGENT_ELASTIC_URL` is configured.

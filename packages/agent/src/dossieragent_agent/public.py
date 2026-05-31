@@ -1,3 +1,4 @@
+from .commands import ParsedCommand, parse_command
 from .prompts import (
     CONTACT_PACKET_PROMPT,
     CONTACT_PACKET_RESPONSE_SCHEMA,

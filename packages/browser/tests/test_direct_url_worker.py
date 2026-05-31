@@ -29,6 +29,10 @@ LISTING_HTML = """
         "name": "T2 Saint-Cyprien proche metro",
         "description": "Appartement lumineux avec balcon.",
         "url": "https://demo.example/listings/t2-saint-cyprien",
+        "image": [
+          "https://cdn.demo.example/listings/t2-saint-cyprien.jpg",
+          {"url": "/images/t2-saint-cyprien-bedroom.jpg"}
+        ],
         "sku": "demo-123",
         "numberOfRooms": 2,
         "floorSize": {"@type": "QuantitativeValue", "value": 39, "unitCode": "MTK"},
@@ -46,6 +50,7 @@ LISTING_HTML = """
   <body>
     <main>
       <h1>T2 Saint-Cyprien proche metro</h1>
+      <img src="/images/t2-saint-cyprien-living.jpg" alt="Salon" />
       <p>39 m2 - 2 pieces - contact agence.</p>
     </main>
   </body>
@@ -58,10 +63,12 @@ LIST_PAGE_HTML = """
   <body>
     <section data-results>
       <a href="/listings/seed-001" data-listing-id="seed-001" data-price="790"
-         data-surface="39" data-city="Toulouse" data-district="Saint-Cyprien">
+         data-surface="39" data-city="Toulouse" data-district="Saint-Cyprien"
+         data-image-url="/images/seed-001.jpg">
         T2 Saint-Cyprien proche metro - 790 EUR - 39 m2
       </a>
       <a href="https://demo.example/listings/seed-002" data-listing-id="seed-002">
+        <img src="/images/seed-002.jpg" alt="Carmes" />
         T2 Carmes calme - 820 EUR - 38 m2
       </a>
       <a href="mailto:agency@example.test">Contact</a>
@@ -113,6 +120,14 @@ class BrowserDirectUrlTests(unittest.TestCase):
         self.assertEqual(candidate["rooms"], 2.0)
         self.assertEqual(candidate["agency_name"], "Agence Demo Toulouse")
         self.assertEqual(candidate["contact_hint"], "contact present on page")
+        self.assertEqual(
+            candidate["raw_payload"]["image_urls"],
+            [
+                "https://cdn.demo.example/listings/t2-saint-cyprien.jpg",
+                "https://demo.example/images/t2-saint-cyprien-bedroom.jpg",
+                "https://demo.example/images/t2-saint-cyprien-living.jpg",
+            ],
+        )
 
     def test_direct_url_extractor_rejects_login_or_captcha_pages(self) -> None:
         with self.assertRaises(ExtractionRejected):
@@ -233,6 +248,14 @@ class BrowserDirectUrlTests(unittest.TestCase):
         self.assertEqual(first["surface"], 39.0)
         self.assertEqual(first["city"], "Toulouse")
         self.assertEqual(first["district"], "Saint-Cyprien")
+        self.assertEqual(
+            first["raw_payload"]["image_urls"],
+            ["https://demo.example/images/seed-001.jpg"],
+        )
+        self.assertEqual(
+            result["items"][1]["raw_payload"]["image_urls"],
+            ["https://demo.example/images/seed-002.jpg"],
+        )
 
     def test_worker_runs_list_page_jobs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp_dir:

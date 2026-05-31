@@ -4,16 +4,20 @@ import {
   AlertTriangle,
   CheckCircle2,
   Eye,
+  ExternalLink,
   FileText,
   Loader2,
   RefreshCcw,
   ShieldCheck,
+  Trash2,
   Upload,
 } from "lucide-react";
 
 import {
   ApiError,
   analyzeDossier,
+  deleteDossierDocument,
+  getDossierDocumentPreview,
   getDossierDocuments,
   getDossierReadiness,
   uploadDossierDocument,
@@ -58,6 +62,12 @@ const fileSizeFormatter = new Intl.NumberFormat("fr-FR", {
   maximumFractionDigits: 1,
 });
 
+type PreviewState = {
+  documentId: string;
+  url: string;
+  filename: string;
+};
+
 export function DossierRoute() {
   const queryClient = useQueryClient();
   const inputRef = useRef<HTMLInputElement | null>(null);
@@ -65,6 +75,7 @@ export function DossierRoute() {
   const [ownerType, setOwnerType] = useState<(typeof ownerTypes)[number]["value"]>("user");
   const [dragActive, setDragActive] = useState(false);
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | undefined>(undefined);
+  const [preview, setPreview] = useState<PreviewState | null>(null);
 
   const documentsQuery = useQuery({
     queryKey: ["dossier-documents"],
@@ -74,12 +85,37 @@ export function DossierRoute() {
     queryKey: ["dossier-readiness"],
     queryFn: getDossierReadiness,
   });
+  const documents = documentsQuery.data?.items ?? [];
 
   const uploadMutation = useMutation({
     mutationFn: uploadDossierDocument,
     onSuccess: (document) => {
       setSelectedDocumentId(document.document_id);
       void queryClient.invalidateQueries({ queryKey: ["dossier-documents"] });
+      void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+
+  const previewMutation = useMutation({
+    mutationFn: getDossierDocumentPreview,
+    onSuccess: (blob, documentId) => {
+      const url = URL.createObjectURL(blob);
+      const matchedDocument = documents.find((document) => document.document_id === documentId);
+      setPreview({
+        documentId,
+        url,
+        filename: matchedDocument?.filename ?? "document.pdf",
+      });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: deleteDossierDocument,
+    onSuccess: (document) => {
+      if (preview?.documentId === document.document_id) setPreview(null);
+      if (selectedDocumentId === document.document_id) setSelectedDocumentId(undefined);
+      void queryClient.invalidateQueries({ queryKey: ["dossier-documents"] });
+      void queryClient.invalidateQueries({ queryKey: ["dossier-readiness"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard"] });
     },
   });
@@ -92,19 +128,20 @@ export function DossierRoute() {
     },
   });
 
-  const documents = documentsQuery.data?.items ?? [];
   const selectedDocument = useMemo(
     () => documents.find((document) => document.document_id === selectedDocumentId) ?? documents[0],
     [documents, selectedDocumentId],
   );
 
   useEffect(() => {
-    if (documents.length === 0) {
+    return () => {
+      if (preview?.url) URL.revokeObjectURL(preview.url);
+    };
+  }, [preview?.url]);
+
+  useEffect(() => {
+    if (selectedDocumentId && !documents.some((document) => document.document_id === selectedDocumentId)) {
       setSelectedDocumentId(undefined);
-      return;
-    }
-    if (!selectedDocumentId || !documents.some((document) => document.document_id === selectedDocumentId)) {
-      setSelectedDocumentId(documents[0].document_id);
     }
   }, [documents, selectedDocumentId]);
 
@@ -181,13 +218,37 @@ export function DossierRoute() {
           documents={documents}
           selectedDocumentId={selectedDocument?.document_id}
           onSelect={setSelectedDocumentId}
+          onPreview={(documentId) => previewMutation.mutate(documentId)}
+          previewingDocumentId={previewMutation.isPending ? previewMutation.variables : undefined}
         />
       </section>
 
       <aside className="grid content-start gap-4">
         <ReadinessCard readiness={readinessQuery.data} analyzing={analyzeMutation.isPending} />
         <MissingDocsChecklist readiness={readinessQuery.data} />
-        <DocumentPreviewPane document={selectedDocument} />
+        <DocumentPreviewPane
+          document={selectedDocument}
+          preview={preview?.documentId === selectedDocument?.document_id ? preview : null}
+          previewPending={
+            previewMutation.isPending && previewMutation.variables === selectedDocument?.document_id
+          }
+          previewError={previewMutation.error}
+          deletePending={
+            deleteMutation.isPending && deleteMutation.variables === selectedDocument?.document_id
+          }
+          deleteError={deleteMutation.error}
+          onPreview={() => {
+            if (selectedDocument) previewMutation.mutate(selectedDocument.document_id);
+          }}
+          onOpenPreview={() => {
+            if (preview?.documentId === selectedDocument?.document_id) {
+              window.open(preview.url, "_blank", "noopener,noreferrer");
+            }
+          }}
+          onDelete={() => {
+            if (selectedDocument) deleteMutation.mutate(selectedDocument.document_id);
+          }}
+        />
       </aside>
     </div>
   );
@@ -302,10 +363,14 @@ function DocumentList({
   documents,
   selectedDocumentId,
   onSelect,
+  onPreview,
+  previewingDocumentId,
 }: {
   documents: DossierDocument[];
   selectedDocumentId: string | undefined;
   onSelect: (documentId: string) => void;
+  onPreview: (documentId: string) => void;
+  previewingDocumentId: string | undefined;
 }) {
   return (
     <Card>
@@ -367,9 +432,14 @@ function DocumentList({
                         onClick={(event) => {
                           event.stopPropagation();
                           onSelect(document.document_id);
+                          onPreview(document.document_id);
                         }}
                       >
-                        <Eye className="size-4" />
+                        {previewingDocumentId === document.document_id ? (
+                          <Loader2 className="size-4 animate-spin" />
+                        ) : (
+                          <Eye className="size-4" />
+                        )}
                       </Button>
                     </TableCell>
                   </TableRow>
@@ -489,7 +559,27 @@ function MissingDocsChecklist({ readiness }: { readiness: DossierReadiness | und
   );
 }
 
-function DocumentPreviewPane({ document }: { document: DossierDocument | undefined }) {
+function DocumentPreviewPane({
+  document,
+  preview,
+  previewPending,
+  previewError,
+  deletePending,
+  deleteError,
+  onPreview,
+  onOpenPreview,
+  onDelete,
+}: {
+  document: DossierDocument | undefined;
+  preview: PreviewState | null;
+  previewPending: boolean;
+  previewError: Error | null;
+  deletePending: boolean;
+  deleteError: Error | null;
+  onPreview: () => void;
+  onOpenPreview: () => void;
+  onDelete: () => void;
+}) {
   return (
     <Card>
       <CardHeader>
@@ -503,10 +593,41 @@ function DocumentPreviewPane({ document }: { document: DossierDocument | undefin
             <Fact label="Type detecte" value={humanizeDocumentType(document.detected_type)} />
             <Fact label="Extraction" value={document.has_extracted_text ? "Texte extrait" : "A revoir"} />
             <Fact label="Analyse" value={document.analysis_status} />
-            <Button variant="outline" type="button" disabled>
-              <Eye className="size-4" />
-              Apercu protege
-            </Button>
+            <div className="grid grid-cols-2 gap-2">
+              <Button variant="outline" type="button" disabled={previewPending} onClick={onPreview}>
+                {previewPending ? <Loader2 className="size-4 animate-spin" /> : <Eye className="size-4" />}
+                Apercu
+              </Button>
+              <Button variant="outline" type="button" disabled={!preview} onClick={onOpenPreview}>
+                <ExternalLink className="size-4" />
+                Ouvrir
+              </Button>
+              <Button
+                className="col-span-2 text-destructive hover:text-destructive"
+                variant="outline"
+                type="button"
+                disabled={deletePending}
+                onClick={onDelete}
+              >
+                {deletePending ? <Loader2 className="size-4 animate-spin" /> : <Trash2 className="size-4" />}
+                Supprimer
+              </Button>
+            </div>
+            {preview ? (
+              <div className="h-[420px] overflow-hidden rounded-md border bg-background">
+                <iframe
+                  className="h-full w-full"
+                  src={preview.url}
+                  title={`Apercu ${preview.filename}`}
+                />
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed p-4 text-xs text-muted-foreground">
+                Chargez un apercu via l API protegee.
+              </div>
+            )}
+            {previewError ? <ErrorLine error={previewError} /> : null}
+            {deleteError ? <ErrorLine error={deleteError} /> : null}
             {[...document.issues, ...document.warnings].length > 0 ? (
               <div className="grid gap-1">
                 {[...document.issues, ...document.warnings].map((message) => (

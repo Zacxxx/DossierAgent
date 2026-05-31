@@ -4,6 +4,7 @@ from .elastic import (
     list_allowed_mcp_tools,
     list_index_permissions,
 )
+from .tools import list_platform_tools
 
 PACKAGE_MANIFEST = {
     "name": "mcp",
@@ -18,6 +19,7 @@ PACKAGE_MANIFEST = {
         "list_allowed_mcp_tools",
         "list_index_permissions",
         "fallback_mcp_elasticsearch_policy",
+        "list_platform_tools",
     ),
     "events": (
         "mcp.config.generated",

@@ -56,33 +56,44 @@ def test_run_now_exposes_run_detail_events_and_idempotency(client: TestClient) -
         "/api/v1/market-watches/watch_toulouse_t2/run-now",
         headers={"Idempotency-Key": "integration-run-now"},
     )
-    conflict = client.post(
+    second = client.post(
         "/api/v1/market-watches/watch_toulouse_t2/run-now",
         headers={"Idempotency-Key": "integration-run-now-conflict"},
     )
 
     assert first.status_code == 202
     run_id = first.json()["run_id"]
-    assert first.json()["status"] == "running"
+    assert first.json()["status"] == "completed"
     assert first.json()["idempotent_replay"] is False
+    assert first.json()["summary"]["candidate_count"] == 3
+    assert first.json()["summary"]["duplicate_count"] == 1
+    assert first.json()["summary"]["repost_count"] == 1
 
     assert replay.status_code == 202
     assert replay.json()["run_id"] == run_id
     assert replay.json()["idempotent_replay"] is True
 
-    assert conflict.status_code == 409
-    assert conflict.json()["error"]["code"] == "run_already_active"
+    assert second.status_code == 202
+    assert second.json()["run_id"] != run_id
+    assert second.json()["status"] == "completed"
 
     detail = client.get(f"/api/v1/agent-runs/{run_id}")
     events = client.get(f"/api/v1/agent-runs/{run_id}/events")
     assert detail.status_code == 200
     assert detail.json()["id"] == run_id
     assert detail.json()["trigger_type"] == "manual"
-    assert detail.json()["current_step"] == "accepted"
+    assert detail.json()["current_step"] == "completed"
     assert events.status_code == 200
     assert [event["type"] for event in events.json()["items"]] == [
         "run_accepted",
-        "worker_pending",
+        "source_scan_started",
+        "source_scan_finished",
+        "normalized",
+        "deduped",
+        "ranked",
+        "index_skipped",
+        "notifications_created",
+        "completed",
     ]
 
 

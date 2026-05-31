@@ -5,10 +5,12 @@ description = "MCP integration package for DossierAgent."
 requires-python = ">=3.12"
 dependencies = []
 
+[project.scripts]
+dossieragent-mcp-stdio = "dossieragent_mcp.servers.stdio:main"
+
 [build-system]
 requires = ["setuptools>=69"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-

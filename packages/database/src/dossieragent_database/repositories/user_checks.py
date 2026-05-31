@@ -21,6 +21,34 @@ class UserCheckRepository(SQLiteTableRepository):
         ).fetchone()
         return None if row is None else row_to_dict(row)
 
+    def find_for_resource(
+        self,
+        *,
+        user_id: str,
+        resource_type: str,
+        resource_id: str,
+        check_type: str | None = None,
+    ) -> dict[str, Any] | None:
+        params: list[Any] = [user_id, resource_type, resource_id]
+        type_sql = ""
+        if check_type is not None:
+            type_sql = "AND type = ?"
+            params.append(check_type)
+
+        row = self.connection.execute(
+            f"""
+            SELECT * FROM user_checks
+            WHERE user_id = ?
+              AND resource_type = ?
+              AND resource_id = ?
+              {type_sql}
+            ORDER BY created_at DESC, id ASC
+            LIMIT 1
+            """,
+            tuple(params),
+        ).fetchone()
+        return None if row is None else row_to_dict(row)
+
     def list_pending_for_user(self, user_id: str, *, limit: int = 100) -> tuple[dict[str, Any], ...]:
         rows = self.connection.execute(
             """

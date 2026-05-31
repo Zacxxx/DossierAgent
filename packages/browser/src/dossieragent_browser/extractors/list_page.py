@@ -12,6 +12,7 @@ from dossieragent_browser.adapters import AdapterRegistry, default_adapter_regis
 from dossieragent_browser.extractors.detail import (
     PlaywrightHtmlLoader,
     StaticHtmlLoader,
+    normalize_image_urls,
     canonicalize_url,
     parse_number,
 )
@@ -89,7 +90,15 @@ class LinkParser(HTMLParser):
             self._skip_text_depth += 1
             return
         if tag == "a":
-            self._active_link = {"attrs": attrs_map, "text": []}
+            self._active_link = {"attrs": attrs_map, "text": [], "image_urls": []}
+        elif tag == "img" and self._active_link is not None:
+            image_url = (
+                attrs_map.get("src")
+                or attrs_map.get("data-src")
+                or attrs_map.get("data-lazy-src")
+            )
+            if image_url:
+                self._active_link["image_urls"].append(image_url)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
@@ -160,7 +169,15 @@ def candidates_from_html(
 
         text = clean_text(" ".join(link["text"]))
         title = clean_text(attrs.get("data-title") or text)
-        raw_payload = {"attrs": attrs, "anchor_text": text}
+        image_urls = normalize_image_urls(
+            [
+                attrs.get("data-image-url"),
+                attrs.get("data-image"),
+                link.get("image_urls", []),
+            ],
+            base_url=listing_url,
+        )
+        raw_payload = {"attrs": attrs, "anchor_text": text, "image_urls": list(image_urls)}
         candidates.append(
             ListingUrlCandidate(
                 source=source,

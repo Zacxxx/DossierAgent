@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
   CheckCircle2,
+  ExternalLink,
   FileWarning,
   Home,
   RefreshCcw,
@@ -9,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { ApiError, getDashboard, type DashboardListing } from "@/api/client";
+import { NotificationCenter } from "@/components/notification-center";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,6 +110,7 @@ export function DashboardRoute() {
                       <th className="border-b pb-2 font-medium">Surface</th>
                       <th className="border-b pb-2 font-medium">Score</th>
                       <th className="border-b pb-2 font-medium">Statut</th>
+                      <th className="border-b pb-2 font-medium">Action</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -173,6 +176,8 @@ export function DashboardRoute() {
             </div>
           </CardContent>
         </Card>
+
+        <NotificationCenter unreadOnly limit={5} />
 
       </aside>
     </div>
@@ -243,16 +248,35 @@ function MetricTile({
 }
 
 function ListingRow({ listing }: { listing: DashboardListing }) {
+  const primaryImageUrl = listing.image_urls[0];
+  const sourceUrl = listing.canonical_url ?? listing.source_url;
+
   return (
     <tr className="align-top">
       <td className="border-b py-3 pr-4">
-        <div className="font-medium">{listing.title}</div>
-        <div className="mt-1 flex flex-wrap gap-1">
-          {listing.risk_flags.map((risk) => (
-            <Badge key={risk} variant="warning">
-              {risk}
-            </Badge>
-          ))}
+        <div className="flex min-w-0 items-center gap-3">
+          {primaryImageUrl ? (
+            <img
+              src={primaryImageUrl}
+              alt={listing.title}
+              className="size-14 shrink-0 rounded-md border object-cover"
+              loading="lazy"
+            />
+          ) : (
+            <div className="flex size-14 shrink-0 items-center justify-center rounded-md border border-dashed bg-muted text-xs text-muted-foreground">
+              Image
+            </div>
+          )}
+          <div className="min-w-0">
+            <div className="truncate font-medium">{listing.title}</div>
+            <div className="mt-1 flex flex-wrap gap-1">
+              {listing.risk_flags.map((risk) => (
+                <Badge key={risk} variant="warning">
+                  {risk}
+                </Badge>
+              ))}
+            </div>
+          </div>
         </div>
       </td>
       <td className="border-b py-3 pr-4 text-muted-foreground">
@@ -265,6 +289,21 @@ function ListingRow({ listing }: { listing: DashboardListing }) {
         <Badge variant="secondary">{listing.fit_score ?? "-"}</Badge>
       </td>
       <td className="border-b py-3 pr-4">{listing.status}</td>
+      <td className="border-b py-3 pr-4">
+        {sourceUrl ? (
+          <Button variant="ghost" size="sm" asChild title="Explorer l'annonce">
+            <a href={sourceUrl} target="_blank" rel="noreferrer">
+              <ExternalLink className="size-4" />
+              Explorer
+            </a>
+          </Button>
+        ) : (
+          <Button variant="ghost" size="sm" disabled title="Source indisponible">
+            <ExternalLink className="size-4" />
+            Explorer
+          </Button>
+        )}
+      </td>
     </tr>
   );
 }

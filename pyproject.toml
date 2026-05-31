@@ -16,4 +16,6 @@ target-version = "py312"
 
 [tool.pytest.ini_options]
 testpaths = ["packages"]
-
+markers = [
+  "live_provider: opt-in evaluations that call a configured live AI provider",
+]

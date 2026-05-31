@@ -1,4 +1,6 @@
 import {
+  Bell,
+  Bot,
   ClipboardList,
   FileText,
   History,
@@ -6,19 +8,27 @@ import {
   Layers3,
   Radar,
   Search,
+  Settings,
+  ShieldCheck,
 } from "lucide-react";
 import { NavLink, Outlet } from "react-router-dom";
 
+import { AuthStatus } from "@/components/auth-status";
+import { CommandComposer } from "@/components/command-composer";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
 const navigationItems = [
   { label: "Dashboard", to: "/", icon: Home },
+  { label: "Auth", to: "/auth", icon: ShieldCheck },
+  { label: "AI Chat", to: "/ai-chat", icon: Bot },
   { label: "Veilles", to: "/watches", icon: Radar },
   { label: "Annonces", to: "/listings", icon: Search },
   { label: "Dossier", to: "/dossier", icon: FileText },
   { label: "Paquets", to: "/contact-packets", icon: ClipboardList },
+  { label: "Notifications", to: "/notifications", icon: Bell },
   { label: "Historique", to: "/history", icon: History },
+  { label: "Settings", to: "/settings", icon: Settings },
 ];
 
 export function AppShell() {
@@ -55,12 +65,13 @@ export function AppShell() {
         </aside>
 
         <div className="min-w-0">
-          <header className="flex h-16 items-center justify-between gap-3 border-b bg-card px-4 lg:px-6">
-            <div className="flex min-w-0 items-center gap-2">
+          <header className="flex min-h-16 flex-wrap items-center justify-between gap-3 border-b bg-card px-4 py-3 lg:px-6">
+            <div className="flex min-w-[220px] items-center gap-2">
               <Layers3 className="size-4 text-primary" />
               <span className="truncate text-sm font-medium">Supervised housing workflow</span>
             </div>
-            <Badge variant="outline">API-backed</Badge>
+            <CommandComposer />
+            <AuthStatus />
           </header>
           <main className="min-w-0 p-4 lg:p-6">
             <Outlet />

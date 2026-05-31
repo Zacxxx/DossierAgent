@@ -21,6 +21,44 @@ Model Context Protocol integration package.
 - MCP server configuration builders
 - Elastic Agent Builder connection metadata
 - allowed MCP tool declarations
+- local stdio MCP server for DossierAgent platform tools
+
+## Local DossierAgent MCP Server
+
+Run the local stdio server from the repository root. Use silent mode so stdout
+contains only MCP JSON-RPC messages:
+
+```bash
+bun --silent run mcp
+```
+
+The stdio server speaks JSON-RPC over stdin/stdout and exposes only supervised
+DossierAgent tools. It calls the core HTTP API instead of importing feature
+packages directly.
+
+Runtime environment:
+
+```bash
+DOSSIERAGENT_MCP_API_BASE_URL=http://127.0.0.1:8000/api/v1
+DOSSIERAGENT_MCP_DEMO_USER_ID=usr_demo
+DOSSIERAGENT_MCP_BEARER_TOKEN=
+DOSSIERAGENT_MCP_TIMEOUT_SECONDS=20
+```
+
+Tools:
+
+| Tool | Purpose |
+|---|---|
+| `dossieragent_search_listings` | Listing search summaries |
+| `dossieragent_get_listing` | Listing review context |
+| `dossieragent_run_watch_now` | Supervised watch run trigger |
+| `dossieragent_dossier_readiness` | Dossier readiness snapshot |
+| `dossieragent_create_contact_packet` | Contact packet draft for human review |
+| `dossieragent_list_user_checks` | Human validation checks |
+| `dossieragent_agent_command` | Existing supervised command path |
+
+No MCP tool sends email, calls landlords, bypasses login, or performs external
+contact. Contact remains a contact-packet plus human-review workflow.
 
 ## Kibana Agent Builder MCP
 

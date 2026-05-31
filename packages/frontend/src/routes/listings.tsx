@@ -299,6 +299,7 @@ export function ListingsRoute() {
                       <TableHead>Ville</TableHead>
                       <TableHead>Score</TableHead>
                       <TableHead>Statut</TableHead>
+                      <TableHead className="w-12">Lien</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -355,18 +356,25 @@ function ListingTableRow({
   isSelected: boolean;
   onSelect: () => void;
 }) {
+  const primaryImageUrl = listing.image_urls[0];
+  const sourceUrl = listing.canonical_url ?? listing.source_url;
   return (
     <TableRow className={cn(isSelected && "bg-muted hover:bg-muted")}>
       <TableCell>
-        <button
-          type="button"
-          className="grid w-full gap-1 text-left"
-          onClick={onSelect}
-          aria-pressed={isSelected}
-        >
-          <span className="font-medium text-foreground">{listing.title}</span>
-          <span className="text-xs text-muted-foreground">{listing.district ?? listing.watch_id}</span>
-        </button>
+        <div className="flex min-w-0 items-center gap-3">
+          <ListingThumbnail imageUrl={primaryImageUrl} title={listing.title} className="size-14" />
+          <button
+            type="button"
+            className="grid min-w-0 gap-1 text-left"
+            onClick={onSelect}
+            aria-pressed={isSelected}
+          >
+            <span className="truncate font-medium text-foreground">{listing.title}</span>
+            <span className="truncate text-xs text-muted-foreground">
+              {listing.district ?? listing.watch_id}
+            </span>
+          </button>
+        </div>
       </TableCell>
       <TableCell className="whitespace-nowrap font-medium">
         {formatCurrency(listing.price, listing.currency)}
@@ -378,6 +386,19 @@ function ListingTableRow({
       </TableCell>
       <TableCell>
         <StatusBadge status={listing.status} />
+      </TableCell>
+      <TableCell>
+        {sourceUrl ? (
+          <Button variant="ghost" size="icon" asChild title="Explorer l'annonce">
+            <a href={sourceUrl} target="_blank" rel="noreferrer">
+              <ExternalLink className="size-4" />
+            </a>
+          </Button>
+        ) : (
+          <Button variant="ghost" size="icon" disabled title="Source indisponible">
+            <ExternalLink className="size-4" />
+          </Button>
+        )}
       </TableCell>
     </TableRow>
   );
@@ -443,6 +464,9 @@ function ListingDetailPane({
     );
   }
 
+  const primaryImageUrl = listing.image_urls[0];
+  const sourceUrl = listing.canonical_url || listing.source_url;
+
   return (
     <Card className="min-w-0">
       <CardHeader>
@@ -453,18 +477,42 @@ function ListingDetailPane({
             <ScoreBadge score={listing.fit_score} />
           </div>
         </div>
-        <Button variant="ghost" size="icon" asChild title="Ouvrir la source">
-          <a href={listing.source_url} target="_blank" rel="noreferrer">
-            <ExternalLink className="size-4" />
-          </a>
-        </Button>
+        <div className="flex items-center gap-1">
+          <Button variant="outline" size="sm" asChild title="Explorer l'annonce">
+            <a href={sourceUrl} target="_blank" rel="noreferrer">
+              <ExternalLink className="size-4" />
+              Explorer
+            </a>
+          </Button>
+        </div>
       </CardHeader>
       <CardContent className="grid gap-4 text-sm">
+        <section className="grid gap-2">
+          <ListingThumbnail
+            imageUrl={primaryImageUrl}
+            title={listing.title}
+            className="h-56 w-full"
+          />
+          {listing.image_urls.length > 1 ? (
+            <div className="grid grid-cols-4 gap-2">
+              {listing.image_urls.slice(1, 5).map((imageUrl) => (
+                <ListingThumbnail
+                  key={imageUrl}
+                  imageUrl={imageUrl}
+                  title={listing.title}
+                  className="h-20 w-full"
+                />
+              ))}
+            </div>
+          ) : null}
+        </section>
+
         <div className="grid gap-2 rounded-md border bg-background p-3 sm:grid-cols-2">
           <Fact label="Prix" value={formatCurrency(listing.price, listing.currency)} />
           <Fact label="Surface" value={formatSurface(listing.surface, listing.rooms)} />
           <Fact label="Zone" value={formatLocation(listing)} />
           <Fact label="Agence" value={listing.agency_name ?? "-"} />
+          <Fact label="Source" value={listing.source} />
           <Fact label="Premier vu" value={formatDate(listing.first_seen_at)} />
           <Fact label="Dernier vu" value={formatDate(listing.last_seen_at)} />
         </div>
@@ -539,6 +587,38 @@ function ListingDetailPane({
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ListingThumbnail({
+  imageUrl,
+  title,
+  className,
+}: {
+  imageUrl: string | undefined;
+  title: string;
+  className?: string;
+}) {
+  if (!imageUrl) {
+    return (
+      <div
+        className={cn(
+          "flex shrink-0 items-center justify-center rounded-md border border-dashed bg-muted text-xs text-muted-foreground",
+          className,
+        )}
+      >
+        Image
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={imageUrl}
+      alt={title}
+      className={cn("shrink-0 rounded-md border object-cover", className)}
+      loading="lazy"
+    />
   );
 }
 

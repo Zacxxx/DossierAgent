@@ -22,6 +22,23 @@ class ListingRepository(SQLiteTableRepository):
         ).fetchone()
         return None if row is None else row_to_dict(row)
 
+    def find_by_canonical_hash_for_user(
+        self,
+        *,
+        user_id: str,
+        canonical_url_hash: str,
+    ) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            """
+            SELECT * FROM listings
+            WHERE user_id = ? AND canonical_url_hash = ?
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1
+            """,
+            (user_id, canonical_url_hash),
+        ).fetchone()
+        return None if row is None else row_to_dict(row)
+
     def search(
         self,
         *,
